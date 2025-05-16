@@ -3,6 +3,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // file sinh ra từ flutterfire configure
 import 'screens/inbox_screen.dart';
 import 'theme/app_theme.dart';
+import 'screens/auth_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/password_management_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +28,7 @@ class EmailApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const InboxScreen(),
+      home: const AuthScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
