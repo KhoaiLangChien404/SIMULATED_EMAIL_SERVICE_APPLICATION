@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "308988723183",
+    "project_id": "email-service-app-61c1b",
+    "storage_bucket": "email-service-app-61c1b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:308988723183:android:4af3d825e636dcf423801a",
+        "android_client_info": {
+          "package_name": "com.android.application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyCxl69nQa74p5u4F9OWSH3V26T_3UCgE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:308988723183:android:866fed9ac744a71123801a",
+        "android_client_info": {
+          "package_name": "com.example.simulated_email_service_application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyCxl69nQa74p5u4F9OWSH3V26T_3UCgE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
