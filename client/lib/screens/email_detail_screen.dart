@@ -1,0 +1,497 @@
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'compose_email_screen.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:html' as html;
+import 'dart:math' as math;
+
+class EmailDetailScreen extends StatefulWidget {
+  final String token;
+  final int emailId;
+
+  const EmailDetailScreen({required this.token, required this.emailId, super.key});
+
+  @override
+  _EmailDetailScreenState createState() => _EmailDetailScreenState();
+}
+
+class _EmailDetailScreenState extends State<EmailDetailScreen> {
+  Map<String, dynamic>? email;
+  String _error = '';
+  String? _pdfError;
+  bool _isLoading = true;
+  final String _baseUrl = 'http://localhost:3000';
+  Map<String, String?> _localFilePaths = {};
+  Map<String, String?> _originalFileNames = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchEmail();
+  }
+
+  Future<void> _fetchEmail() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/emails/${widget.emailId}'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (mounted) {
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          setState(() {
+            email = data;
+            _isLoading = false;
+          });
+
+          if (email!['attachments'] != null && email!['attachments'].isNotEmpty) {
+            for (var attachment in email!['attachments']) {
+              await _downloadAttachment(attachment['filePath'] as String?, attachment['originalFileName'] as String?);
+            }
+          }
+
+          if (!email!['isRead']) {
+            await _updateAction('read', true);
+          }
+        } else {
+          setState(() {
+            _error = 'Failed to fetch email: ${jsonDecode(response.body)['error'] ?? response.body}';
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Error: Failed to fetch email. ${e.toString()}';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _downloadAttachment(String? filePath, String? originalFileName) async {
+    if (filePath == null) return;
+    try {
+      if (kIsWeb) {
+        if (mounted) {
+          setState(() {
+            _localFilePaths[filePath] = '$_baseUrl$filePath';
+            _originalFileNames[filePath] = originalFileName;
+          });
+        }
+      } else {
+        final response = await http.get(
+          Uri.parse('$_baseUrl$filePath'),
+          headers: {'Authorization': 'Bearer ${widget.token}'},
+        );
+
+        if (response.statusCode == 200) {
+          final bytes = response.bodyBytes;
+          final tempDir = await getTemporaryDirectory();
+          final fileName = originalFileName ?? filePath.split('/').last;
+          final localFile = File('${tempDir.path}/$fileName');
+          await localFile.writeAsBytes(bytes);
+          if (mounted) {
+            setState(() {
+              _localFilePaths[filePath] = localFile.path;
+              _originalFileNames[filePath] = originalFileName;
+            });
+          }
+        } else {
+          print('Failed to download attachment: $filePath');
+        }
+      }
+    } catch (e) {
+      print('Error downloading attachment: $e');
+    }
+  }
+
+  Future<bool> _updateAction(String action, bool value) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/email-actions'),
+        headers: {'Authorization': 'Bearer ${widget.token}', 'Content-Type': 'application/json'},
+        body: jsonEncode({'emailId': widget.emailId, 'action': action, 'value': value}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (mounted) {
+        if (response.statusCode == 200) {
+          setState(() {
+            if (email != null) email![action == 'read' ? 'isRead' : 'isStarred'] = value;
+          });
+          return true;
+        } else {
+          setState(() {
+            _error = 'Failed to update email: ${jsonDecode(response.body)['error'] ?? response.body}';
+          });
+          print('Failed to update action: ${response.statusCode}, ${response.body}');
+          return false;
+        }
+      }
+      return false;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Error updating email: ${e.toString()}';
+        });
+      }
+      print('Update action error: $e');
+      return false;
+    }
+  }
+
+  Future<void> _launchFile(String filePath) async {
+    final originalFileName = _originalFileNames[filePath];
+    final downloadUrl = '$_baseUrl/api/download/${Uri.encodeComponent(filePath)}';
+
+    try {
+      final response = await http.get(
+        Uri.parse(downloadUrl),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+
+      if (response.statusCode == 200) {
+        final bytes = response.bodyBytes;
+
+        if (kIsWeb) {
+          final blob = html.Blob([bytes]);
+          final url = html.Url.createObjectUrlFromBlob(blob);
+          final anchor = html.AnchorElement(href: url)
+            ..setAttribute('download', originalFileName ?? filePath.split('/').last)
+            ..click();
+          html.Url.revokeObjectUrl(url);
+        } else {
+          final tempDir = await getTemporaryDirectory();
+          final fileName = originalFileName ?? filePath.split('/').last;
+          final localFile = File('${tempDir.path}/$fileName');
+          await localFile.writeAsBytes(bytes);
+          final uri = Uri.file(localFile.path);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          } else {
+            print('Could not launch $uri');
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _error = 'Failed to download file: ${jsonDecode(response.body)['error'] ?? response.body}';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Error downloading file: $e';
+        });
+      }
+    }
+  }
+
+  void _showMoreOptions(String value) {
+    switch (value) {
+      case 'Reply':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ComposeEmailScreen(
+              token: widget.token,
+              replyTo: email,
+            ),
+          ),
+        );
+        break;
+      case 'Forward':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ComposeEmailScreen(
+              token: widget.token,
+              forwardFrom: email,
+            ),
+          ),
+        );
+        break;
+      case 'Metadata':
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Metadata'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('From: ${email!['senderPhone']}'),
+                Text('To: ${email!['recipientPhone']}'),
+                if (email!['cc'] != null && (email!['cc'] as String).isNotEmpty)
+                  Text('CC: ${email!['cc']}'),
+                if (email!['bcc'] != null && (email!['bcc'] as String).isNotEmpty)
+                  Text('BCC: ${email!['bcc']}'),
+                Text('Date: ${email!['timestamp']}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+        break;
+      case 'Move to Trash':
+        _updateAction('trash', true);
+        if (mounted) {
+          Navigator.pop(context, {'isRead': email!['isRead'], 'isStarred': email!['isStarred']});
+        }
+        break;
+    }
+  }
+
+  Future<void> _markAsUnread() async {
+    if (email != null && email!['isRead']) {
+      final success = await _updateAction('read', false);
+      if (success && mounted) {
+        Navigator.pop(context, {'isRead': false, 'isStarred': email!['isStarred']});
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Email Details')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error.isNotEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Email Details')),
+        body: Center(child: Text(_error, style: const TextStyle(color: Colors.red))),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Padding(
+          padding: const EdgeInsets.only(right: 16.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  email!['subject'] ?? 'No Subject',
+                  style: const TextStyle(fontSize: 18, fontFamily: 'Roboto'),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (mounted) {
+              Navigator.pop(context, {'isRead': email!['isRead'], 'isStarred': email!['isStarred']});
+            }
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.mail),
+            tooltip: 'Mark as unread',
+            onPressed: _markAsUnread,
+          ),
+          IconButton(
+            icon: Icon(
+              email!['isStarred'] ? Icons.star : Icons.star_border,
+              color: email!['isStarred'] ? Colors.yellow[700] : Colors.black,
+            ),
+            tooltip: email!['isStarred'] ? 'starred' : 'not starred',
+            onPressed: () async {
+              final previousStarredState = email!['isStarred'];
+              if (mounted) {
+                setState(() {
+                  email!['isStarred'] = !email!['isStarred'];
+                });
+              }
+              final success = await _updateAction('star', email!['isStarred']);
+              if (!success && mounted) {
+                setState(() {
+                  email!['isStarred'] = previousStarredState;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Failed to update starred status')),
+                );
+              }
+            },
+          ),
+          IconButton(
+            icon: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.rotationY(math.pi),
+              child: const Icon(Icons.reply),
+            ),
+            tooltip: 'reply',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ComposeEmailScreen(
+                    token: widget.token,
+                    replyTo: email,
+                  ),
+                ),
+              );
+            },
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'more',
+            onSelected: _showMoreOptions,
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'Reply',
+                child: Text('Reply'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'Forward',
+                child: Text('Forward'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'Metadata',
+                child: Text('Metadata'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'Move to Trash',
+                child: Text('Move to Trash'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('From: ${email!['senderPhone']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('To: ${email!['recipientPhone']}'),
+            if (email!['cc'] != null && (email!['cc'] as String).isNotEmpty) Text('CC: ${email!['cc']}'),
+            if (email!['bcc'] != null && (email!['bcc'] as String).isNotEmpty) Text('BCC: ${email!['bcc']}'),
+            Text('Date: ${email!['timestamp']}'),
+            const SizedBox(height: 16),
+            const Text('Body:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(email!['body'] ?? ''),
+            if (email!['attachments'] != null && email!['attachments'].isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: (email!['attachments'] as List).map<Widget>((dynamic attachment) {
+                  final filePath = attachment['filePath'] as String?;
+                  final fileType = attachment['fileType'] as String?;
+                  final originalFileName = attachment['originalFileName'] as String?;
+                  final localFilePath = _localFilePaths[filePath ?? ''];
+                  final displayName = (originalFileName != null && originalFileName.isNotEmpty)
+                      ? originalFileName
+                      : (filePath?.split('/').last ?? 'Unknown File');
+
+                  if (fileType == null || filePath == null) {
+                    return const Text('Invalid attachment');
+                  }
+
+                  if (fileType.startsWith('image/')) {
+                    return Image.network('$_baseUrl$filePath');
+                  } else if (fileType == 'application/pdf') {
+                    if (kIsWeb && (localFilePath ?? '').startsWith(_baseUrl)) {
+                      return GestureDetector(
+                        onTap: () => _launchFile(filePath),
+                        child: Text(
+                          'View PDF: $displayName',
+                          style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                        ),
+                      );
+                    } else if (localFilePath != null) {
+                      return SizedBox(
+                        height: 200,
+                        child: PDFView(
+                          filePath: localFilePath,
+                          onError: (error) {
+                            if (mounted) {
+                              setState(() {
+                                _pdfError = 'Error loading PDF: $error';
+                              });
+                            }
+                          },
+                        ),
+                      );
+                    } else {
+                      return GestureDetector(
+                        onTap: () => _launchFile(filePath),
+                        child: Text(
+                          'View PDF: $displayName',
+                          style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                        ),
+                      );
+                    }
+                  } else {
+                    return GestureDetector(
+                      onTap: () => _launchFile(filePath),
+                      child: Text(
+                        'Attachment: $displayName',
+                        style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                      ),
+                    );
+                  }
+                }).toList(),
+              ),
+            if (_pdfError != null) Text(_pdfError!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ComposeEmailScreen(
+                        token: widget.token,
+                        replyTo: email,
+                      ),
+                    ),
+                  ),
+                  child: const Text('Reply'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ComposeEmailScreen(
+                        token: widget.token,
+                        forwardFrom: email,
+                      ),
+                    ),
+                  ),
+                  child: const Text('Forward'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
