@@ -24,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentFolder = 'inbox';
   bool _isDetailedView = false;
   Map<int, bool> _hoverStates = {};
+  String? _selectedLabel; // Track selected label for filtering
   final String _baseUrl = 'http://localhost:3000';
 
   @override
@@ -63,7 +64,12 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> fetchedEmails = jsonDecode(response.body);
         if (mounted) {
           setState(() {
-            _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
+            _emails = _selectedLabel != null
+                ? fetchedEmails
+                    .where((email) => email['labels']?.contains(_selectedLabel) ?? false)
+                    .map((email) => Map<String, dynamic>.from(email))
+                    .toList()
+                : fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
             _drafts = [];
             _error = '';
             _hoverStates = {for (var email in _emails) email['id'] as int: false};
@@ -89,7 +95,12 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> fetchedDrafts = jsonDecode(response.body);
         if (mounted) {
           setState(() {
-            _drafts = fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
+            _drafts = _selectedLabel != null
+                ? fetchedDrafts
+                    .where((draft) => (draft['labels'] ?? []).contains(_selectedLabel))
+                    .map((draft) => Map<String, dynamic>.from(draft))
+                    .toList()
+                : fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
             _emails = [];
             _error = '';
             _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
@@ -206,9 +217,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _currentFolder = folder;
+        _selectedLabel = null; // Clear label filter when switching folders
         _emails = [];
         _drafts = [];
         _error = '';
+      });
+      if (_currentFolder == 'draft') {
+        _fetchDrafts();
+      } else {
+        _fetchEmails();
+      }
+    }
+  }
+
+  void _toggleLabel(String label) {
+    if (mounted) {
+      setState(() {
+        _selectedLabel = _selectedLabel == label ? null : label;
       });
       if (_currentFolder == 'draft') {
         _fetchDrafts();
@@ -329,6 +354,36 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                 },
               ),
+              ExpansionTile(
+                leading: const Icon(Icons.label),
+                title: const Text('Categories'),
+                trailing: Icon(
+                  _selectedLabel == null ? Icons.arrow_forward_ios : Icons.arrow_drop_down,
+                  size: 20,
+                ),
+                children: [
+                  CheckboxListTile(
+                    title: const Text('Social'),
+                    value: _selectedLabel == 'Social',
+                    onChanged: (_) => _toggleLabel('Social'),
+                  ),
+                  CheckboxListTile(
+                    title: const Text('Updates'),
+                    value: _selectedLabel == 'Updates',
+                    onChanged: (_) => _toggleLabel('Updates'),
+                  ),
+                  CheckboxListTile(
+                    title: const Text('Forums'),
+                    value: _selectedLabel == 'Forums',
+                    onChanged: (_) => _toggleLabel('Forums'),
+                  ),
+                  CheckboxListTile(
+                    title: const Text('Promotions'),
+                    value: _selectedLabel == 'Promotions',
+                    onChanged: (_) => _toggleLabel('Promotions'),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -354,10 +409,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: GestureDetector(
                           onTap: () async {
                             if (_currentFolder == 'draft') {
-                              // Update UI manually when opening draft
                               if (!isRead && mounted) {
                                 setState(() {
-                                  _drafts[index]['isRead'] = true; // Update UI immediately
+                                  _drafts[index]['isRead'] = true;
                                 });
                               }
                               await Navigator.push(
@@ -371,10 +425,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               );
                               if (mounted) {
                                 setState(() {
-                                  _drafts = []; // Refresh drafts list
+                                  _drafts = [];
                                   _error = '';
                                 });
-                                _fetchDrafts(); // Refresh drafts when returning
+                                _fetchDrafts();
                               }
                             } else {
                               final result = await Navigator.push(

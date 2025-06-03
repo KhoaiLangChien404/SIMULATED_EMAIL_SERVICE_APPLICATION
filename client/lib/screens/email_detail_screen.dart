@@ -17,12 +17,12 @@ class EmailDetailScreen extends StatefulWidget {
   const EmailDetailScreen({required this.token, required this.emailId, super.key});
 
   @override
-  _EmailDetailScreenState createState() => _EmailDetailScreenState();
+  State<EmailDetailScreen> createState() => _EmailDetailScreenState();
 }
 
 class _EmailDetailScreenState extends State<EmailDetailScreen> {
-  Map<String, dynamic>? email;
-  String _error = '';
+  Map<String, dynamic>? _email;
+  String _errorMessage = '';
   String? _pdfError;
   bool _isLoading = true;
   final String _baseUrl = 'http://localhost:3000';
@@ -35,6 +35,11 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
     _fetchEmail();
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
   Future<void> _fetchEmail() async {
     try {
       final response = await http.get(
@@ -42,34 +47,37 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
 
-      if (mounted) {
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          setState(() {
-            email = data;
-            _isLoading = false;
-          });
+      if (!mounted) return;
 
-          if (email!['attachments'] != null && email!['attachments'].isNotEmpty) {
-            for (var attachment in email!['attachments']) {
-              await _downloadAttachment(attachment['filePath'] as String?, attachment['originalFileName'] as String?);
-            }
-          }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _email = data;
+          _isLoading = false;
+        });
 
-          if (!email!['isRead']) {
-            await _updateAction('read', true);
+        if (_email!['attachments'] != null && (_email!['attachments'] as List).isNotEmpty) {
+          for (var attachment in _email!['attachments'] as List<dynamic>) {
+            await _downloadAttachment(
+              attachment['filePath'] as String?,
+              attachment['originalFileName'] as String?,
+            );
           }
-        } else {
-          setState(() {
-            _error = 'Failed to fetch email: ${jsonDecode(response.body)['error'] ?? response.body}';
-            _isLoading = false;
-          });
         }
+
+        if (!(_email!['isRead'] as bool)) {
+          await _updateAction('read', true);
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Failed to fetch email: ${jsonDecode(response.body)['error'] ?? response.body}';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Error: Failed to fetch email. ${e.toString()}';
+          _errorMessage = 'Error: Failed to fetch email. $e';
           _isLoading = false;
         });
       }
@@ -78,6 +86,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
 
   Future<void> _downloadAttachment(String? filePath, String? originalFileName) async {
     if (filePath == null) return;
+
     try {
       if (kIsWeb) {
         if (mounted) {
@@ -90,7 +99,9 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
         final response = await http.get(
           Uri.parse('$_baseUrl$filePath'),
           headers: {'Authorization': 'Bearer ${widget.token}'},
-        );
+        ).timeout(const Duration(seconds: 10));
+
+        if (!mounted) return;
 
         if (response.statusCode == 200) {
           final bytes = response.bodyBytes;
@@ -98,14 +109,12 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           final fileName = originalFileName ?? filePath.split('/').last;
           final localFile = File('${tempDir.path}/$fileName');
           await localFile.writeAsBytes(bytes);
-          if (mounted) {
-            setState(() {
-              _localFilePaths[filePath] = localFile.path;
-              _originalFileNames[filePath] = originalFileName;
-            });
-          }
+          setState(() {
+            _localFilePaths[filePath] = localFile.path;
+            _originalFileNames[filePath] = originalFileName;
+          });
         } else {
-          print('Failed to download attachment: $filePath');
+          print('Failed to download attachment: $filePath, Status: ${response.statusCode}');
         }
       }
     } catch (e) {
@@ -113,36 +122,93 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
     }
   }
 
+  Future<void> _assignLabel(int emailId, String label, bool value) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/email-labels'),
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'emailId': emailId,
+          'label': label,
+          'value': value,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        setState(() {
+          final List<dynamic> currentLabels = List<dynamic>.from(_email!['labels'] as List<dynamic>? ?? []);
+          if (value) {
+            if (!currentLabels.contains(label)) {
+              currentLabels.add(label);
+            }
+          } else {
+            currentLabels.remove(label);
+          }
+          _email!['labels'] = currentLabels;
+        });
+      } else if (response.statusCode == 404) {
+        setState(() {
+          _errorMessage = 'Server error: Label assignment endpoint not found. Please contact support.';
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'Failed to assign label: ${response.body}';
+        });
+        print('Assign label failed: ${response.statusCode}, ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Error assigning label: $e';
+        });
+        print('Assign label exception: $e');
+      }
+    }
+  }
+
   Future<bool> _updateAction(String action, bool value) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/api/email-actions'),
-        headers: {'Authorization': 'Bearer ${widget.token}', 'Content-Type': 'application/json'},
-        body: jsonEncode({'emailId': widget.emailId, 'action': action, 'value': value}),
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'emailId': widget.emailId,
+          'action': action,
+          'value': value,
+        }),
       ).timeout(const Duration(seconds: 10));
 
-      if (mounted) {
-        if (response.statusCode == 200) {
-          setState(() {
-            if (email != null) email![action == 'read' ? 'isRead' : 'isStarred'] = value;
-          });
-          return true;
-        } else {
-          setState(() {
-            _error = 'Failed to update email: ${jsonDecode(response.body)['error'] ?? response.body}';
-          });
-          print('Failed to update action: ${response.statusCode}, ${response.body}');
-          return false;
-        }
+      if (!mounted) return false;
+
+      if (response.statusCode == 200) {
+        setState(() {
+          if (_email != null) {
+            _email![action == 'read' ? 'isRead' : 'isStarred'] = value;
+          }
+        });
+        return true;
+      } else {
+        setState(() {
+          _errorMessage = 'Failed to update email: ${jsonDecode(response.body)['error'] ?? response.body}';
+        });
+        print('Failed to update action: ${response.statusCode}, ${response.body}');
+        return false;
       }
-      return false;
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Error updating email: ${e.toString()}';
+          _errorMessage = 'Error updating email: $e';
         });
+        print('Update action error: $e');
       }
-      print('Update action error: $e');
       return false;
     }
   }
@@ -155,7 +221,9 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       final response = await http.get(
         Uri.parse(downloadUrl),
         headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
+      ).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final bytes = response.bodyBytes;
@@ -180,16 +248,14 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           }
         }
       } else {
-        if (mounted) {
-          setState(() {
-            _error = 'Failed to download file: ${jsonDecode(response.body)['error'] ?? response.body}';
-          });
-        }
+        setState(() {
+          _errorMessage = 'Failed to download file: ${jsonDecode(response.body)['error'] ?? response.body}';
+        });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Error downloading file: $e';
+          _errorMessage = 'Error downloading file: $e';
         });
       }
     }
@@ -203,7 +269,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           MaterialPageRoute(
             builder: (context) => ComposeEmailScreen(
               token: widget.token,
-              replyTo: email,
+              replyTo: _email,
             ),
           ),
         );
@@ -214,7 +280,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           MaterialPageRoute(
             builder: (context) => ComposeEmailScreen(
               token: widget.token,
-              forwardFrom: email,
+              forwardFrom: _email,
             ),
           ),
         );
@@ -228,13 +294,13 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('From: ${email!['senderPhone']}'),
-                Text('To: ${email!['recipientPhone']}'),
-                if (email!['cc'] != null && (email!['cc'] as String).isNotEmpty)
-                  Text('CC: ${email!['cc']}'),
-                if (email!['bcc'] != null && (email!['bcc'] as String).isNotEmpty)
-                  Text('BCC: ${email!['bcc']}'),
-                Text('Date: ${email!['timestamp']}'),
+                Text('From: ${_email!['senderPhone'] as String? ?? 'Unknown'}'),
+                Text('To: ${_email!['recipientPhone'] as String? ?? 'Unknown'}'),
+                if (_email!['cc'] != null && (_email!['cc'] as String).isNotEmpty)
+                  Text('CC: ${_email!['cc']}'),
+                if (_email!['bcc'] != null && (_email!['bcc'] as String).isNotEmpty)
+                  Text('BCC: ${_email!['bcc']}'),
+                Text('Date: ${_email!['timestamp'] as String? ?? 'N/A'}'),
               ],
             ),
             actions: [
@@ -249,24 +315,25 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       case 'Move to Trash':
         _updateAction('trash', true);
         if (mounted) {
-          Navigator.pop(context, {'isRead': email!['isRead'], 'isStarred': email!['isStarred']});
+          Navigator.pop(context, {
+            'isRead': _email!['isRead'] as bool,
+            'isStarred': _email!['isStarred'] as bool,
+          });
         }
         break;
     }
   }
 
   Future<void> _markAsUnread() async {
-    if (email != null && email!['isRead']) {
+    if (_email != null && (_email!['isRead'] as bool)) {
       final success = await _updateAction('read', false);
       if (success && mounted) {
-        Navigator.pop(context, {'isRead': false, 'isStarred': email!['isStarred']});
+        Navigator.pop(context, {
+          'isRead': false,
+          'isStarred': _email!['isStarred'] as bool,
+        });
       }
     }
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 
   @override
@@ -278,12 +345,19 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       );
     }
 
-    if (_error.isNotEmpty) {
+    if (_errorMessage.isNotEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('Email Details')),
-        body: Center(child: Text(_error, style: const TextStyle(color: Colors.red))),
+        body: Center(
+          child: Text(
+            _errorMessage,
+            style: const TextStyle(color: Colors.red),
+          ),
+        ),
       );
     }
+
+    final List<dynamic> labels = (_email!['labels'] as List<dynamic>?) ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -293,7 +367,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
             children: [
               Expanded(
                 child: Text(
-                  email!['subject'] ?? 'No Subject',
+                  _email!['subject'] as String? ?? 'No Subject',
                   style: const TextStyle(fontSize: 18, fontFamily: 'Roboto'),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
@@ -306,11 +380,53 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             if (mounted) {
-              Navigator.pop(context, {'isRead': email!['isRead'], 'isStarred': email!['isStarred']});
+              Navigator.pop(context, {
+                'isRead': _email!['isRead'] as bool,
+                'isStarred': _email!['isStarred'] as bool,
+              });
             }
           },
         ),
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.label_outline),
+            tooltip: 'labels',
+            onSelected: (String label) {
+              if (!mounted) return;
+              setState(() {
+                final List<dynamic> currentLabels = List<dynamic>.from(labels);
+                if (currentLabels.contains(label)) {
+                  currentLabels.remove(label);
+                } else {
+                  currentLabels.add(label);
+                }
+                _email!['labels'] = currentLabels;
+              });
+              _assignLabel(widget.emailId, label, !labels.contains(label));
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              CheckedPopupMenuItem<String>(
+                value: 'Social',
+                checked: labels.contains('Social'),
+                child: const Text('Social'),
+              ),
+              CheckedPopupMenuItem<String>(
+                value: 'Updates',
+                checked: labels.contains('Updates'),
+                child: const Text('Updates'),
+              ),
+              CheckedPopupMenuItem<String>(
+                value: 'Forums',
+                checked: labels.contains('Forums'),
+                child: const Text('Forums'),
+              ),
+              CheckedPopupMenuItem<String>(
+                value: 'Promotions',
+                checked: labels.contains('Promotions'),
+                child: const Text('Promotions'),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.mail),
             tooltip: 'Mark as unread',
@@ -318,21 +434,19 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           ),
           IconButton(
             icon: Icon(
-              email!['isStarred'] ? Icons.star : Icons.star_border,
-              color: email!['isStarred'] ? Colors.yellow[700] : Colors.black,
+              _email!['isStarred'] as bool ? Icons.star : Icons.star_border,
+              color: _email!['isStarred'] as bool ? Colors.yellow[700] : Colors.black,
             ),
-            tooltip: email!['isStarred'] ? 'starred' : 'not starred',
+            tooltip: _email!['isStarred'] as bool ? 'starred' : 'not starred',
             onPressed: () async {
-              final previousStarredState = email!['isStarred'];
-              if (mounted) {
-                setState(() {
-                  email!['isStarred'] = !email!['isStarred'];
-                });
-              }
-              final success = await _updateAction('star', email!['isStarred']);
+              final previousStarredStatus = _email!['isStarred'] as bool;
+              setState(() {
+                _email!['isStarred'] = !previousStarredStatus;
+              });
+              final success = await _updateAction('star', _email!['isStarred'] as bool);
               if (!success && mounted) {
                 setState(() {
-                  email!['isStarred'] = previousStarredState;
+                  _email!['isStarred'] = previousStarredStatus;
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Failed to update starred status')),
@@ -353,7 +467,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                 MaterialPageRoute(
                   builder: (context) => ComposeEmailScreen(
                     token: widget.token,
-                    replyTo: email,
+                    replyTo: _email,
                   ),
                 ),
               );
@@ -389,18 +503,26 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('From: ${email!['senderPhone']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('To: ${email!['recipientPhone']}'),
-            if (email!['cc'] != null && (email!['cc'] as String).isNotEmpty) Text('CC: ${email!['cc']}'),
-            if (email!['bcc'] != null && (email!['bcc'] as String).isNotEmpty) Text('BCC: ${email!['bcc']}'),
-            Text('Date: ${email!['timestamp']}'),
+            Text(
+              'From: ${_email!['senderPhone'] as String? ?? 'Unknown'}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            Text('To: ${_email!['recipientPhone'] as String? ?? 'Unknown'}'),
+            if (_email!['cc'] != null && (_email!['cc'] as String).isNotEmpty)
+              Text('CC: ${_email!['cc']}'),
+            if (_email!['bcc'] != null && (_email!['bcc'] as String).isNotEmpty)
+              Text('BCC: ${_email!['bcc']}'),
+            Text('Date: ${_email!['timestamp'] as String? ?? 'N/A'}'),
             const SizedBox(height: 16),
-            const Text('Body:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text(email!['body'] ?? ''),
-            if (email!['attachments'] != null && email!['attachments'].isNotEmpty)
+            const Text(
+              'Body:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            Text(_email!['body'] as String? ?? ''),
+            if (_email!['attachments'] != null && (_email!['attachments'] as List).isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: (email!['attachments'] as List).map<Widget>((dynamic attachment) {
+                children: (_email!['attachments'] as List<dynamic>).map<Widget>((dynamic attachment) {
                   final filePath = attachment['filePath'] as String?;
                   final fileType = attachment['fileType'] as String?;
                   final originalFileName = attachment['originalFileName'] as String?;
@@ -421,7 +543,10 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                         onTap: () => _launchFile(filePath),
                         child: Text(
                           'View PDF: $displayName',
-                          style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                          style: const TextStyle(
+                            color: Colors.blue,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       );
                     } else if (localFilePath != null) {
@@ -443,7 +568,10 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                         onTap: () => _launchFile(filePath),
                         child: Text(
                           'View PDF: $displayName',
-                          style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                          style: const TextStyle(
+                            color: Colors.blue,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       );
                     }
@@ -452,13 +580,20 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                       onTap: () => _launchFile(filePath),
                       child: Text(
                         'Attachment: $displayName',
-                        style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                        style: const TextStyle(
+                          color: Colors.blue,
+                          decoration: TextDecoration.underline,
+                        ),
                       ),
                     );
                   }
                 }).toList(),
               ),
-            if (_pdfError != null) Text(_pdfError!, style: const TextStyle(color: Colors.red)),
+            if (_pdfError != null)
+              Text(
+                _pdfError!,
+                style: const TextStyle(color: Colors.red),
+              ),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -469,7 +604,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                     MaterialPageRoute(
                       builder: (context) => ComposeEmailScreen(
                         token: widget.token,
-                        replyTo: email,
+                        replyTo: _email,
                       ),
                     ),
                   ),
@@ -481,7 +616,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
                     MaterialPageRoute(
                       builder: (context) => ComposeEmailScreen(
                         token: widget.token,
-                        forwardFrom: email,
+                        forwardFrom: _email,
                       ),
                     ),
                   ),

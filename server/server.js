@@ -88,6 +88,17 @@ db.run(`
   )
 `);
 
+// New table for email labels
+db.run(`
+  CREATE TABLE IF NOT EXISTS email_labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emailId INTEGER,
+    label TEXT,
+    FOREIGN KEY (emailId) REFERENCES emails(id),
+    UNIQUE(emailId, label)
+  )
+`);
+
 const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
 
 // Middleware to verify JWT
@@ -277,7 +288,8 @@ app.get('/api/emails', authenticate, (req, res) => {
         SELECT e.*, 
                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames
+               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
         FROM emails e 
         WHERE e.recipientPhone = ? 
           AND e.isTrashed = 0 
@@ -289,7 +301,8 @@ app.get('/api/emails', authenticate, (req, res) => {
         SELECT e.*, 
                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames
+               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
         FROM emails e 
         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
           AND e.isStarred = 1 
@@ -301,7 +314,8 @@ app.get('/api/emails', authenticate, (req, res) => {
         SELECT e.*, 
                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames
+               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
         FROM emails e 
         WHERE e.senderPhone = ? 
           AND e.isTrashed = 0 
@@ -313,7 +327,8 @@ app.get('/api/emails', authenticate, (req, res) => {
         SELECT e.*, 
                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames
+               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
         FROM emails e 
         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
           AND e.isTrashed = 1 
@@ -345,6 +360,7 @@ app.get('/api/emails', authenticate, (req, res) => {
       return {
         ...email,
         attachments,
+        labels: email.labels ? email.labels.split(',') : [],
         attachmentPaths: undefined,
         attachmentTypes: undefined,
         attachmentNames: undefined,
@@ -357,7 +373,7 @@ app.get('/api/emails', authenticate, (req, res) => {
   });
 });
 
-// Get Email with Attachments
+// Get Email with Attachments and Labels
 app.get('/api/emails/:id', authenticate, (req, res) => {
   const emailId = req.params.id;
   db.get(
@@ -367,15 +383,66 @@ app.get('/api/emails/:id', authenticate, (req, res) => {
       if (err || !email) return res.status(404).json({ error: 'Email not found' });
       db.all('SELECT filePath, fileType, originalFileName FROM attachments WHERE emailId = ?', [emailId], (err, attachments) => {
         if (err) return res.status(400).json({ error: 'Failed to fetch attachments' });
-        email.isRead = email.isRead === 1 || email.isRead === '1';
-        email.isStarred = email.isStarred === 1 || email.isStarred === '1';
-        email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
-        email.attachments = attachments.map(attachment => ({
-          ...attachment,
-          originalFileName: decodeURIComponent(attachment.originalFileName || ''),
-        }));
-        res.json(email);
+        db.all('SELECT label FROM email_labels WHERE emailId = ?', [emailId], (err, labels) => {
+          if (err) return res.status(400).json({ error: 'Failed to fetch labels' });
+          email.isRead = email.isRead === 1 || email.isRead === '1';
+          email.isStarred = email.isStarred === 1 || email.isStarred === '1';
+          email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
+          email.attachments = attachments.map(attachment => ({
+            ...attachment,
+            originalFileName: decodeURIComponent(attachment.originalFileName || ''),
+          }));
+          email.labels = labels.map(label => label.label);
+          res.json(email);
+        });
       });
+    }
+  );
+});
+
+// Assign/Remove Labels
+app.post('/api/email-labels', authenticate, (req, res) => {
+  const { emailId, label, value } = req.body;
+  if (!emailId || !label || value === undefined) {
+    return res.status(400).json({ error: 'emailId, label, and value are required' });
+  }
+
+  // Validate email exists and user has access
+  db.get(
+    'SELECT id FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    (err, email) => {
+      if (err || !email) {
+        return res.status(404).json({ error: 'Email not found or unauthorized' });
+      }
+
+      if (value) {
+        // Add label if it doesn't exist
+        db.run(
+          'INSERT OR IGNORE INTO email_labels (emailId, label) VALUES (?, ?)',
+          [emailId, label],
+          function (err) {
+            if (err) {
+              console.error('Insert label error:', err);
+              return res.status(500).json({ error: 'Failed to assign label' });
+            }
+            res.status(200).json({ success: true });
+          }
+        );
+      } else {
+        // Remove label if it exists
+        db.run(
+          'DELETE FROM email_labels WHERE emailId = ? AND label = ?',
+          [emailId, label],
+          function (err) {
+            if (err) {
+              console.error('Delete label error:', err);
+              return res.status(500).json({ error: 'Failed to remove label' });
+            }
+            res.status(200).json({ success: true });
+          }
+        );
+      }
     }
   );
 });
