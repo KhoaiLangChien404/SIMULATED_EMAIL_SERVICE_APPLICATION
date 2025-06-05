@@ -375,7 +375,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async => false,
@@ -534,49 +533,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Column(
           children: [
-            // Thêm hàng nút bên dưới thanh tìm kiếm
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-              color: Colors.grey[300],
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      if (_currentFolder == 'draft') {
-                        _fetchDrafts();
-                      } else {
-                        _fetchEmails();
-                      }
-                    },
-                    child: const Text('Apply Filters'),
-                  ),
-                  ElevatedButton(
-                    onPressed: _resetFilters,
-                    child: const Text('Clear All'),
-                  ),
-                  // Thêm nút tùy chỉnh khác nếu cần
-                  ElevatedButton(
-                    onPressed: () {
-                      // Thêm hành động tùy chỉnh, ví dụ: lọc nhanh theo ngày hôm nay
-                      setState(() {
-                        _dateRange = DateTimeRange(
-                          start: DateTime.now().subtract(const Duration(days: 1)),
-                          end: DateTime.now(),
-                        );
-                      });
-                      if (_currentFolder == 'draft') {
-                        _fetchDrafts();
-                      } else {
-                        _fetchEmails();
-                      }
-                    },
-                    child: const Text('Last 24h'),
-                  ),
-                ],
-              ),
-            ),
-            // Panel Advanced Search
             if (_showAdvancedSearch)
               Container(
                 padding: const EdgeInsets.all(8.0),
