@@ -6,6 +6,7 @@ import 'profile_screen.dart';
 import 'compose_email_screen.dart';
 import 'email_detail_screen.dart';
 import 'login_screen.dart';
+import '../services/email_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final String token;
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<int, bool> _hoverStates = {};
   String? _selectedLabel; // Track selected label for filtering
   final String _baseUrl = 'http://localhost:3000';
+  final EmailService _emailService = EmailService();
 
   @override
   void initState() {
@@ -33,6 +35,30 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadViewMode();
     _fetchProfile();
     _fetchEmails();
+    _emailService.connect(); // Kết nối WebSocket
+    _emailService.emailStream.listen((newEmail) {
+      if (_currentFolder == 'inbox' && mounted) {
+        setState(() {
+          _emails.insert(0, {
+            'id': newEmail['id'],
+            'senderPhone': newEmail['senderPhone'],
+            'subject': newEmail['subject'],
+            'timestamp': newEmail['timestamp'],
+            'isRead': false,
+            'isStarred': false,
+            'isTrashed': false,
+            'body': '', // Sẽ được lấy đầy đủ khi xem chi tiết
+          });
+          _hoverStates[newEmail['id']] = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _emailService.dispose(); // Ngắt WebSocket khi dispose
+    super.dispose();
   }
 
   Future<void> _loadViewMode() async {

@@ -6,10 +6,41 @@ const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
+const WebSocket = require('ws');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Thiết lập WebSocket server
+const server = app.listen(3000, () => console.log('Server running on port 3000'));
+const wss = new WebSocket.Server({ server });
+
+// Lưu trữ client WebSocket theo user phone
+const clients = new Map();
+
+wss.on('connection', (ws, req) => {
+  // Lấy token từ query param
+  const urlParams = new URLSearchParams(req.url.split('?')[1]);
+  const token = urlParams.get('token');
+
+  if (!token) {
+    ws.close(1008, 'No token provided');
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    const userPhone = decoded.phone;
+    clients.set(userPhone, ws); // Lưu client theo phone
+
+    ws.on('close', () => {
+      clients.delete(userPhone); // Xóa client khi ngắt kết nối
+    });
+  } catch (err) {
+    ws.close(1008, 'Invalid token');
+  }
+});
 
 // Ensure uploads directory exists
 const uploadDir = 'uploads';
@@ -246,6 +277,28 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
             return res.status(400).json({ error: 'Failed to send email' });
           }
           const emailId = this.lastID;
+          // Lấy thông tin email vừa gửi để gửi qua WebSocket
+          db.get(
+            'SELECT id, senderPhone, recipientPhone, subject, body, timestamp FROM emails WHERE id = ?',
+            [emailId],
+            (err, email) => {
+              if (!err && email) {
+                // Gửi thông báo qua WebSocket cho recipient
+                const recipientWs = clients.get(recipientPhone);
+                if (recipientWs) {
+                  recipientWs.send(JSON.stringify({
+                    type: 'new_email',
+                    email: {
+                      id: email.id,
+                      senderPhone: email.senderPhone,
+                      subject: email.subject,
+                      timestamp: email.timestamp,
+                    },
+                  }));
+                }
+              }
+            }
+          );
           if (attachments.length > 0) {
             const attachmentData = attachments.map(file => ({
               emailId,
@@ -573,4 +626,4 @@ app.post('/api/email-actions', authenticate, (req, res) => {
 // Serve files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+app.listen(3001, () => console.log('Server running on port 3001'));
