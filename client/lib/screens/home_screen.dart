@@ -1,11 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'profile_screen.dart';
 import 'compose_email_screen.dart';
 import 'email_detail_screen.dart';
 import 'login_screen.dart';
+import 'manage_labels_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String token;
@@ -24,10 +25,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentFolder = 'inbox';
   bool _isDetailedView = false;
   Map<int, bool> _hoverStates = {};
-  String? _selectedLabel;
+  Set<String> _selectedLabels = {}; // Thay đổi từ String? thành Set<String>
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final String _baseUrl = 'http://localhost:3000';
+  List<String> _labels = [];
 
   // Advanced Search Filters
   bool _fromMe = false;
@@ -41,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadViewMode();
     _fetchProfile();
     _fetchEmails();
+    _fetchLabels();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
@@ -95,9 +98,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> fetchedEmails = jsonDecode(response.body);
         if (mounted) {
           setState(() {
-            _emails = _selectedLabel != null
+            _emails = _selectedLabels.isNotEmpty
                 ? fetchedEmails
-                    .where((email) => email['labels']?.contains(_selectedLabel) ?? false)
+                    .where((email) => _selectedLabels.any((label) => (email['labels'] as List?)?.contains(label) ?? false))
                     .map((email) => Map<String, dynamic>.from(email))
                     .toList()
                 : fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
@@ -141,9 +144,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> fetchedDrafts = jsonDecode(response.body);
         if (mounted) {
           setState(() {
-            _drafts = _selectedLabel != null
+            _drafts = _selectedLabels.isNotEmpty
                 ? fetchedDrafts
-                    .where((draft) => (draft['labels'] ?? []).contains(_selectedLabel))
+                    .where((draft) => _selectedLabels.any((label) => (draft['labels'] as List?)?.contains(label) ?? false))
                     .map((draft) => Map<String, dynamic>.from(draft))
                     .toList()
                 : fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
@@ -181,6 +184,27 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = 'Error fetching profile: $e');
       print('Fetch profile exception: $e');
+    }
+  }
+
+  Future<void> _fetchLabels() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/labels'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _labels = data.cast<String>();
+          });
+        }
+      } else {
+        if (mounted) setState(() => _error = 'Failed to fetch labels: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error fetching labels: $e');
     }
   }
 
@@ -261,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _currentFolder = folder;
-        _selectedLabel = null;
+        _selectedLabels.clear(); // Xóa tất cả label đã chọn khi chuyển folder
         _searchQuery = '';
         _searchController.clear();
         _emails = [];
@@ -282,7 +306,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _toggleLabel(String label) {
     if (mounted) {
       setState(() {
-        _selectedLabel = _selectedLabel == label ? null : label;
+        if (_selectedLabels.contains(label)) {
+          _selectedLabels.remove(label);
+        } else {
+          _selectedLabels.add(label);
+        }
       });
       if (_currentFolder == 'draft') {
         _fetchDrafts();
@@ -360,6 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _hasAttachments = false;
       _searchQuery = '';
       _searchController.clear();
+      _selectedLabels.clear(); // Xóa tất cả label đã chọn khi reset
     });
     if (_currentFolder == 'draft') {
       _fetchDrafts();
@@ -500,33 +529,38 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               ExpansionTile(
                 leading: const Icon(Icons.label),
-                title: const Text('Categories'),
+                title: const Text('Labels'),
                 trailing: Icon(
-                  _selectedLabel == null ? Icons.arrow_forward_ios : Icons.arrow_drop_down,
+                  _selectedLabels.isEmpty ? Icons.arrow_forward_ios : Icons.arrow_drop_down,
                   size: 20,
                 ),
                 children: [
-                  CheckboxListTile(
-                    title: const Text('Social'),
-                    value: _selectedLabel == 'Social',
-                    onChanged: (_) => _toggleLabel('Social'),
-                  ),
-                  CheckboxListTile(
-                    title: const Text('Updates'),
-                    value: _selectedLabel == 'Updates',
-                    onChanged: (_) => _toggleLabel('Updates'),
-                  ),
-                  CheckboxListTile(
-                    title: const Text('Forums'),
-                    value: _selectedLabel == 'Forums',
-                    onChanged: (_) => _toggleLabel('Forums'),
-                  ),
-                  CheckboxListTile(
-                    title: const Text('Promotions'),
-                    value: _selectedLabel == 'Promotions',
-                    onChanged: (_) => _toggleLabel('Promotions'),
-                  ),
+                  for (var label in _labels)
+                    CheckboxListTile(
+                      title: Text(label),
+                      value: _selectedLabels.contains(label),
+                      onChanged: (_) => _toggleLabel(label),
+                    ),
                 ],
+              ),
+              ListTile(
+                leading: const Icon(Icons.manage_search),
+                title: const Text('Quản lý nhãn'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManageLabelsScreen(token: widget.token),
+                    ),
+                  ).then((_) {
+                    _fetchLabels();
+                    if (_currentFolder == 'draft') {
+                      _fetchDrafts();
+                    } else {
+                      _fetchEmails();
+                    }
+                  });
+                },
               ),
             ],
           ),

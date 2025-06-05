@@ -28,11 +28,12 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
   final String _baseUrl = 'http://localhost:3000';
   Map<String, String?> _localFilePaths = {};
   Map<String, String?> _originalFileNames = {};
+  List<String> _availableLabels = []; // Danh sách nhãn từ server
 
   @override
   void initState() {
     super.initState();
-    _fetchEmail();
+    _fetchEmailAndLabels();
   }
 
   @override
@@ -40,17 +41,18 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchEmail() async {
+  Future<void> _fetchEmailAndLabels() async {
     try {
-      final response = await http.get(
+      // Fetch email
+      final emailResponse = await http.get(
         Uri.parse('$_baseUrl/api/emails/${widget.emailId}'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (emailResponse.statusCode == 200) {
+        final data = jsonDecode(emailResponse.body);
         setState(() {
           _email = data;
           _isLoading = false;
@@ -70,17 +72,39 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
         }
       } else {
         setState(() {
-          _errorMessage = 'Failed to fetch email: ${jsonDecode(response.body)['error'] ?? response.body}';
+          _errorMessage = 'Failed to fetch email: ${jsonDecode(emailResponse.body)['error'] ?? emailResponse.body}';
           _isLoading = false;
         });
       }
+
+      // Fetch available labels
+      await _fetchAvailableLabels();
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Error: Failed to fetch email. $e';
+          _errorMessage = 'Error: Failed to fetch email or labels. $e';
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _fetchAvailableLabels() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/labels'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List<dynamic>;
+        setState(() {
+          _availableLabels = data.cast<String>();
+        });
+      } else {
+        print('Failed to fetch labels: ${response.statusCode}, ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching labels: $e');
     }
   }
 
@@ -140,15 +164,15 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        setState(() {
-          final List<dynamic> currentLabels = List<dynamic>.from(_email!['labels'] as List<dynamic>? ?? []);
-          if (value) {
-            if (!currentLabels.contains(label)) {
-              currentLabels.add(label);
-            }
-          } else {
-            currentLabels.remove(label);
+        final List<dynamic> currentLabels = List<dynamic>.from(_email!['labels'] as List<dynamic>? ?? []);
+        if (value) {
+          if (!currentLabels.contains(label)) {
+            currentLabels.add(label);
           }
+        } else {
+          currentLabels.remove(label);
+        }
+        setState(() {
           _email!['labels'] = currentLabels;
         });
       } else if (response.statusCode == 404) {
@@ -357,7 +381,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       );
     }
 
-    final List<dynamic> labels = (_email!['labels'] as List<dynamic>?) ?? [];
+    final List<dynamic> currentLabels = (_email!['labels'] as List<dynamic>?) ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -393,39 +417,15 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
             tooltip: 'labels',
             onSelected: (String label) {
               if (!mounted) return;
-              setState(() {
-                final List<dynamic> currentLabels = List<dynamic>.from(labels);
-                if (currentLabels.contains(label)) {
-                  currentLabels.remove(label);
-                } else {
-                  currentLabels.add(label);
-                }
-                _email!['labels'] = currentLabels;
-              });
-              _assignLabel(widget.emailId, label, !labels.contains(label));
+              _assignLabel(widget.emailId, label, !currentLabels.contains(label));
             },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              CheckedPopupMenuItem<String>(
-                value: 'Social',
-                checked: labels.contains('Social'),
-                child: const Text('Social'),
-              ),
-              CheckedPopupMenuItem<String>(
-                value: 'Updates',
-                checked: labels.contains('Updates'),
-                child: const Text('Updates'),
-              ),
-              CheckedPopupMenuItem<String>(
-                value: 'Forums',
-                checked: labels.contains('Forums'),
-                child: const Text('Forums'),
-              ),
-              CheckedPopupMenuItem<String>(
-                value: 'Promotions',
-                checked: labels.contains('Promotions'),
-                child: const Text('Promotions'),
-              ),
-            ],
+            itemBuilder: (BuildContext context) => _availableLabels.map<PopupMenuEntry<String>>((String label) {
+              return CheckedPopupMenuItem<String>(
+                value: label,
+                checked: currentLabels.contains(label),
+                child: Text(label),
+              );
+            }).toList(),
           ),
           IconButton(
             icon: const Icon(Icons.mail),

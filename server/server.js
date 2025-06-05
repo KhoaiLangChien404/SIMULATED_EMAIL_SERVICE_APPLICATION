@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random * 1E9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
@@ -273,117 +273,6 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
     res.status(500).json({ error: 'Server error' });
   }
 });
-// này là code cũ nha ae, mốt xóa cũng đc
-// Get Emails
-// app.get('/api/emails', authenticate, (req, res) => {
-//   const folder = req.query.folder || 'inbox';
-//   const search = (req.query.search || '').toLowerCase(); // Chuyển về chữ thường
-//   console.log('Emails query: folder=%s, search=%s', folder, search);
-//   let query = '';
-//   let params = [];
-
-//   switch (folder.toLowerCase()) {
-//     case 'inbox':
-//       query = `
-//         SELECT e.*, 
-//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-//         FROM emails e 
-//         WHERE e.recipientPhone = ? 
-//           AND e.isTrashed = 0
-//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
-//         ORDER BY e.timestamp DESC`;
-//       params = [req.user.phone];
-//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-//       break;
-//     case 'starred':
-//       query = `
-//         SELECT e.*, 
-//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-//         FROM emails e 
-//         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
-//           AND e.isStarred = 1 
-//           AND e.isTrashed = 0
-//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
-//         ORDER BY e.timestamp DESC`;
-//       params = [req.user.phone, req.user.phone, req.user.phone, req.user.phone];
-//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-//       break;
-//     case 'sent':
-//       query = `
-//         SELECT e.*, 
-//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-//         FROM emails e 
-//         WHERE e.senderPhone = ?
-//           AND e.isTrashed = 0
-//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
-//         ORDER BY e.timestamp DESC`;
-//       params = [req.user.phone];
-//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-//       break;
-//     case 'trash':
-//       query = `
-//         SELECT e.*, 
-//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-//         FROM emails e 
-//         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
-//           AND e.isTrashed = 1
-//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
-//         ORDER BY e.timestamp DESC`;
-//       params = [req.user.phone, req.user.phone, req.user.phone, req.user.phone];
-//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-//       break;
-//     default:
-//       return res.status(400).json({ error: 'Invalid folder' });
-//   }
-
-//   console.log('Emails SQL query:', query, params);
-//   db.all(query, params, (err, emails) => {
-//     if (err) {
-//       console.error('Database error:', err);
-//       return res.status(400).json({ error: 'Failed to fetch emails' });
-//     }
-//     const result = emails.map(email => {
-//       const attachments = [];
-//       if (email.attachmentPaths && email.attachmentTypes && email.attachmentNames) {
-//         const paths = email.attachmentPaths.split(',');
-//         const types = email.attachmentTypes.split(',');
-//         const names = email.attachmentNames.split(',');
-//         for (let i = 0; i < paths.length; i++) {
-//           attachments.push({
-//             filePath: paths[i],
-//             fileType: types[i],
-//             originalFileName: decodeURIComponent(names[i] || ''),
-//           });
-//         }
-//       }
-//       return {
-//         ...email,
-//         attachments,
-//         labels: email.labels ? email.labels.split(',') : [],
-//         attachmentPaths: undefined,
-//         attachmentTypes: undefined,
-//         attachmentNames: undefined,
-//         isRead: email.isRead === 1 || email.isRead === '1',
-//         isStarred: email.isStarred === 1 || email.isStarred === '1',
-//         isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
-//       };
-//     });
-//     console.log('Emails response:', result);
-//     res.json(result);
-//   });
-// });
 
 app.get('/api/emails', authenticate, (req, res) => {
   const folder = req.query.folder || 'inbox';
@@ -613,33 +502,6 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
   }
 });
 
-// Get Drafts
-// Get Drafts
-// app.get('/api/drafts', authenticate, (req, res) => {
-//   const search = (req.query.search || '').toLowerCase();
-//   console.log('Drafts query: search=%s', search);
-//   let query = `
-//     SELECT * FROM drafts 
-//     WHERE senderPhone = ?
-//       ${search ? 'AND (LOWER(subject) LIKE ? OR LOWER(recipientPhone) LIKE ? OR LOWER(body) LIKE ?)' : ''}
-//     ORDER BY timestamp DESC
-//   `;
-//   let params = [req.user.phone];
-//   if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-//   console.log('Drafts SQL query:', query, params);
-//   db.all(query, params, (err, drafts) => {
-//     if (err) {
-//       console.error('Database error:', err);
-//       return res.status(400).json({ error: 'Failed to fetch drafts' });
-//     }
-//     const result = drafts.map(draft => ({
-//       ...draft,
-//     }));
-//     console.log('Drafts response:', result);
-//     res.json(result);
-//   });
-// });
-
 app.get('/api/drafts', authenticate, (req, res) => {
   const search = (req.query.search || '').toLowerCase();
   const startDate = req.query.startDate;
@@ -736,6 +598,107 @@ app.post('/api/email-actions', authenticate, (req, res) => {
       }
       console.log(`Updated email ${emailId} with action ${action} to ${value}`);
       res.json({ message: 'Action updated' });
+    }
+  );
+});
+
+// Get Labels
+app.get('/api/labels', authenticate, (req, res) => {
+  db.all(
+    'SELECT DISTINCT label FROM email_labels WHERE emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    (err, rows) => {
+      if (err) {
+        console.error('Error fetching labels:', err);
+        return res.status(400).json({ error: 'Failed to fetch labels' });
+      }
+      const labels = rows.map(row => row.label);
+      res.json(labels);
+    }
+  );
+});
+
+// Add a new label
+app.post('/api/labels/add', authenticate, (req, res) => {
+  const { label } = req.body;
+  if (!label || label.trim() === '') {
+    return res.status(400).json({ error: 'Label is required and cannot be empty' });
+  }
+  db.get(
+    'SELECT label FROM email_labels WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [label.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    (err, row) => {
+      if (err) {
+        console.error('Error checking label:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (row) {
+        return res.status(400).json({ error: 'Label already exists' });
+      }
+      db.get(
+        'SELECT id FROM emails WHERE (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?) LIMIT 1',
+        [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+        (err, email) => {
+          if (err || !email) {
+            return res.status(404).json({ error: 'No emails found to associate label' });
+          }
+          db.run(
+            'INSERT INTO email_labels (emailId, label) VALUES (?, ?)',
+            [email.id, label.trim()],
+            (err) => {
+              if (err) {
+                console.error('Error adding label:', err);
+                return res.status(400).json({ error: 'Failed to add label' });
+              }
+              res.status(201).json({ message: 'Label added', label: label.trim() });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// Remove a label
+app.post('/api/labels/remove', authenticate, (req, res) => {
+  const { label } = req.body;
+  if (!label || label.trim() === '') {
+    return res.status(400).json({ error: 'Label is required and cannot be empty' });
+  }
+  db.run(
+    'DELETE FROM email_labels WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [label.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    function (err) {
+      if (err) {
+        console.error('Error removing label:', err);
+        return res.status(400).json({ error: 'Failed to remove label' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Label not found or unauthorized' });
+      }
+      res.json({ message: 'Label removed' });
+    }
+  );
+});
+
+// Rename a label
+app.post('/api/labels/rename', authenticate, (req, res) => {
+  const { oldLabel, newLabel } = req.body;
+  if (!oldLabel || !newLabel || oldLabel.trim() === '' || newLabel.trim() === '') {
+    return res.status(400).json({ error: 'Old label and new label are required and cannot be empty' });
+  }
+  db.run(
+    'UPDATE email_labels SET label = ? WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [newLabel.trim(), oldLabel.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    function (err) {
+      if (err) {
+        console.error('Error renaming label:', err);
+        return res.status(400).json({ error: 'Failed to rename label' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Label not found or unauthorized' });
+      }
+      res.json({ message: 'Label renamed', oldLabel: oldLabel.trim(), newLabel: newLabel.trim() });
     }
   );
 });
