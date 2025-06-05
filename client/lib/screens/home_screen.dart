@@ -29,6 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final String _baseUrl = 'http://localhost:3000';
 
+  // Advanced Search Filters
+  bool _fromMe = false;
+  DateTimeRange? _dateRange;
+  bool _hasAttachments = false;
+  bool _showAdvancedSearch = false;
+
   @override
   void initState() {
     super.initState();
@@ -69,7 +75,15 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     try {
-      final uri = Uri.parse('$_baseUrl/api/emails?folder=$_currentFolder${_searchQuery.isNotEmpty ? '&search=$_searchQuery' : ''}');
+      String queryParams = '';
+      if (_searchQuery.isNotEmpty) queryParams += '&search=$_searchQuery';
+      if (_fromMe) queryParams += '&fromMe=true';
+      if (_dateRange != null) {
+        queryParams += '&startDate=${_dateRange!.start.toIso8601String()}&endDate=${_dateRange!.end.toIso8601String()}';
+      }
+      if (_hasAttachments) queryParams += '&hasAttachments=true';
+
+      final uri = Uri.parse('$_baseUrl/api/emails?folder=$_currentFolder$queryParams');
       print('Fetching emails with URL: $uri');
       final response = await http.get(
         uri,
@@ -107,37 +121,44 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchDrafts() async {
-  try {
-    final uri = Uri.parse('$_baseUrl/api/drafts${_searchQuery.isNotEmpty ? '?search=$_searchQuery' : ''}');
-    print('Fetching drafts with URL: $uri');
-    final response = await http.get(
-      uri,
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    ).timeout(const Duration(seconds: 10));
-    print('Drafts response status: ${response.statusCode}');
-    print('Drafts response body: ${response.body}');
-    if (response.statusCode == 200) {
-      final List<dynamic> fetchedDrafts = jsonDecode(response.body);
-      if (mounted) {
-        setState(() {
-          _drafts = _selectedLabel != null
-              ? fetchedDrafts
-                  .where((draft) => (draft['labels'] ?? []).contains(_selectedLabel))
-                  .map((draft) => Map<String, dynamic>.from(draft))
-                  .toList()
-              : fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
-          _emails = [];
-          _error = '';
-          _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
-        });
+    try {
+      String queryParams = '';
+      if (_searchQuery.isNotEmpty) queryParams += '?search=$_searchQuery';
+      if (_dateRange != null) {
+        queryParams += '${queryParams.isEmpty ? '?' : '&'}startDate=${_dateRange!.start.toIso8601String()}&endDate=${_dateRange!.end.toIso8601String()}';
       }
-    } else {
-      if (mounted) setState(() => _error = 'Failed to fetch drafts: ${response.body}');
+      if (_hasAttachments) queryParams += '${queryParams.isEmpty ? '?' : '&'}hasAttachments=true';
+
+      final uri = Uri.parse('$_baseUrl/api/drafts$queryParams');
+      print('Fetching drafts with URL: $uri');
+      final response = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      print('Drafts response status: ${response.statusCode}');
+      print('Drafts response body: ${response.body}');
+      if (response.statusCode == 200) {
+        final List<dynamic> fetchedDrafts = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _drafts = _selectedLabel != null
+                ? fetchedDrafts
+                    .where((draft) => (draft['labels'] ?? []).contains(_selectedLabel))
+                    .map((draft) => Map<String, dynamic>.from(draft))
+                    .toList()
+                : fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
+            _emails = [];
+            _error = '';
+            _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
+          });
+        }
+      } else {
+        if (mounted) setState(() => _error = 'Failed to fetch drafts: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error fetching drafts: $e');
     }
-  } catch (e) {
-    if (mounted) setState(() => _error = 'Error fetching drafts: $e');
   }
-}
 
   Future<void> _fetchProfile() async {
     try {
@@ -246,6 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _emails = [];
         _drafts = [];
         _error = '';
+        _fromMe = false;
+        _dateRange = null;
+        _hasAttachments = false;
       });
       if (_currentFolder == 'draft') {
         _fetchDrafts();
@@ -297,7 +321,49 @@ class _HomeScreenState extends State<HomeScreen> {
         _error = '';
         _searchQuery = '';
         _searchController.clear();
+        _fromMe = false;
+        _dateRange = null;
+        _hasAttachments = false;
       });
+      _fetchEmails();
+    }
+  }
+
+  void _showAdvancedSearchPanel() {
+    setState(() {
+      _showAdvancedSearch = !_showAdvancedSearch;
+    });
+  }
+
+  Future<void> _selectDateRange() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _dateRange = picked;
+      });
+      if (_currentFolder == 'draft') {
+        _fetchDrafts();
+      } else {
+        _fetchEmails();
+      }
+    }
+  }
+
+  void _resetFilters() {
+    setState(() {
+      _fromMe = false;
+      _dateRange = null;
+      _hasAttachments = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    if (_currentFolder == 'draft') {
+      _fetchDrafts();
+    } else {
       _fetchEmails();
     }
   }
@@ -315,40 +381,51 @@ class _HomeScreenState extends State<HomeScreen> {
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-          title: TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value;
-              });
-              if (_currentFolder == 'draft') {
-                _fetchDrafts();
-              } else {
-                _fetchEmails();
-              }
-            },
-            decoration: InputDecoration(
-              hintText: 'Search emails...',
-              border: InputBorder.none,
-              hintStyle: TextStyle(color: Colors.white70),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: Icon(Icons.clear, color: Colors.white),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                        if (_currentFolder == 'draft') {
-                          _fetchDrafts();
-                        } else {
-                          _fetchEmails();
-                        }
-                      },
-                    )
-                  : null,
-            ),
-            style: TextStyle(color: Colors.white),
+          title: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value;
+                    });
+                    if (_currentFolder == 'draft') {
+                      _fetchDrafts();
+                    } else {
+                      _fetchEmails();
+                    }
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search emails...',
+                    border: InputBorder.none,
+                    hintStyle: TextStyle(color: Colors.white70),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: Icon(Icons.clear, color: Colors.white),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {
+                                _searchQuery = '';
+                              });
+                              if (_currentFolder == 'draft') {
+                                _fetchDrafts();
+                              } else {
+                                _fetchEmails();
+                              }
+                            },
+                          )
+                        : null,
+                  ),
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.filter_alt, color: Colors.white),
+                onPressed: _showAdvancedSearchPanel,
+                tooltip: 'Advanced Search',
+              ),
+            ],
           ),
           actions: [
             IconButton(
@@ -455,207 +532,304 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        body: (_error.isNotEmpty)
-            ? Center(child: Text(_error, style: const TextStyle(color: Colors.red)))
-            : (_searchQuery.isNotEmpty && (_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft'))
-                ? Center(child: Text('Not found'))
-                : (_emails.isEmpty && _drafts.isEmpty)
-                    ? const Center(child: CircularProgressIndicator())
-                    : ListView.builder(
-                        itemCount: _currentFolder == 'draft' ? _drafts.length : _emails.length,
-                        itemBuilder: (context, index) {
-                          final item = _currentFolder == 'draft' ? _drafts[index] : _emails[index];
-                          final isRead = _currentFolder != 'draft' ? item['isRead'] as bool : false;
-                          final isStarred = _currentFolder != 'draft' ? item['isStarred'] as bool : false;
-                          final hasAttachments = _currentFolder != 'draft' && item['attachments'] != null && (item['attachments'] as List).isNotEmpty;
-                          final hasDraftAttachment = _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
-                          final itemId = item['id'] as int;
-                          final isHovering = _hoverStates[itemId] ?? false;
+        body: Column(
+          children: [
+            // Thêm hàng nút bên dưới thanh tìm kiếm
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              color: Colors.grey[300],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    onPressed: () {
+                      if (_currentFolder == 'draft') {
+                        _fetchDrafts();
+                      } else {
+                        _fetchEmails();
+                      }
+                    },
+                    child: const Text('Apply Filters'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _resetFilters,
+                    child: const Text('Clear All'),
+                  ),
+                  // Thêm nút tùy chỉnh khác nếu cần
+                  ElevatedButton(
+                    onPressed: () {
+                      // Thêm hành động tùy chỉnh, ví dụ: lọc nhanh theo ngày hôm nay
+                      setState(() {
+                        _dateRange = DateTimeRange(
+                          start: DateTime.now().subtract(const Duration(days: 1)),
+                          end: DateTime.now(),
+                        );
+                      });
+                      if (_currentFolder == 'draft') {
+                        _fetchDrafts();
+                      } else {
+                        _fetchEmails();
+                      }
+                    },
+                    child: const Text('Last 24h'),
+                  ),
+                ],
+              ),
+            ),
+            // Panel Advanced Search
+            if (_showAdvancedSearch)
+              Container(
+                padding: const EdgeInsets.all(8.0),
+                color: Colors.grey[200],
+                child: Column(
+                  children: [
+                    if (_currentFolder != 'draft')
+                      CheckboxListTile(
+                        title: const Text('From me'),
+                        value: _fromMe,
+                        onChanged: (value) {
+                          setState(() {
+                            _fromMe = value ?? false;
+                          });
+                          _fetchEmails();
+                        },
+                      ),
+                    ListTile(
+                      title: const Text('Date range'),
+                      subtitle: _dateRange != null
+                          ? Text('${_dateRange!.start.toString().split(' ')[0]} - ${_dateRange!.end.toString().split(' ')[0]}')
+                          : const Text('Select date range'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.calendar_today),
+                        onPressed: _selectDateRange,
+                      ),
+                    ),
+                    CheckboxListTile(
+                      title: const Text('Has attachments'),
+                      value: _hasAttachments,
+                      onChanged: (value) {
+                        setState(() {
+                          _hasAttachments = value ?? false;
+                        });
+                        if (_currentFolder == 'draft') {
+                          _fetchDrafts();
+                        } else {
+                          _fetchEmails();
+                        }
+                      },
+                    ),
+                    ElevatedButton(
+                      onPressed: _resetFilters,
+                      child: const Text('Reset Filters'),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: (_error.isNotEmpty)
+                  ? Center(child: Text(_error, style: const TextStyle(color: Colors.red)))
+                  : (_searchQuery.isNotEmpty && (_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft'))
+                      ? Center(child: Text('Not found'))
+                      : (_emails.isEmpty && _drafts.isEmpty)
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView.builder(
+                              itemCount: _currentFolder == 'draft' ? _drafts.length : _emails.length,
+                              itemBuilder: (context, index) {
+                                final item = _currentFolder == 'draft' ? _drafts[index] : _emails[index];
+                                final isRead = _currentFolder != 'draft' ? item['isRead'] as bool : false;
+                                final isStarred = _currentFolder != 'draft' ? item['isStarred'] as bool : false;
+                                final hasAttachments = _currentFolder != 'draft' && item['attachments'] != null && (item['attachments'] as List).isNotEmpty;
+                                final hasDraftAttachment = _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
+                                final itemId = item['id'] as int;
+                                final isHovering = _hoverStates[itemId] ?? false;
 
-                          return MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            onEnter: (_) => mounted ? setState(() => _hoverStates[itemId] = true) : null,
-                            onExit: (_) => mounted ? setState(() => _hoverStates[itemId] = false) : null,
-                            child: GestureDetector(
-                              onTap: () async {
-                                if (_currentFolder == 'draft') {
-                                  await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => ComposeEmailScreen(
-                                        token: widget.token,
-                                        draft: item,
-                                      ),
-                                    ),
-                                  );
-                                  if (mounted) {
-                                    setState(() {
-                                      _drafts = [];
-                                      _error = '';
-                                    });
-                                    _fetchDrafts();
-                                  }
-                                } else {
-                                  final result = await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => EmailDetailScreen(
-                                        emailId: item['id'],
-                                        token: widget.token,
-                                      ),
-                                    ),
-                                  );
-                                  if (result != null && result is Map<String, dynamic>) {
-                                    final updatedIsRead = result['isRead'] as bool?;
-                                    final updatedIsStarred = result['isStarred'] as bool?;
-                                    if (updatedIsRead != null) _updateEmailReadStatus(item['id'], updatedIsRead);
-                                    if (updatedIsStarred != null && mounted) {
-                                      setState(() {
-                                        final emailIndex = _emails.indexWhere((e) => e['id'] == item['id']);
-                                        if (emailIndex != -1) _emails[emailIndex]['isStarred'] = updatedIsStarred;
-                                      });
-                                    }
-                                  }
-                                }
-                              },
-                              child: Container(
-                                color: _currentFolder == 'draft' ? Colors.grey[100] : (isRead ? Colors.grey[200] : Colors.grey[50]),
-                                child: ListTile(
-                                  leading: Tooltip(
-                                    message: isStarred ? 'starred' : 'not starred',
-                                    child: MouseRegion(
-                                      cursor: SystemMouseCursors.click,
-                                      child: IconButton(
-                                        icon: Icon(
-                                          isStarred ? Icons.star : Icons.star_border,
-                                          color: isStarred ? Colors.yellow[700] : null,
-                                          size: 20,
-                                        ),
-                                        onPressed: _currentFolder != 'draft'
-                                            ? () {
-                                                final newStarStatus = !isStarred;
-                                                if (mounted) setState(() => item['isStarred'] = newStarStatus);
-                                                _updateAction(itemId, 'star', newStarStatus);
-                                              }
-                                            : null,
-                                        splashRadius: 20,
-                                        iconSize: 20,
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(),
-                                        style: IconButton.styleFrom(
-                                          side: BorderSide(
-                                            color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
-                                            width: 1,
-                                            style: BorderStyle.solid,
+                                return MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  onEnter: (_) => mounted ? setState(() => _hoverStates[itemId] = true) : null,
+                                  onExit: (_) => mounted ? setState(() => _hoverStates[itemId] = false) : null,
+                                  child: GestureDetector(
+                                    onTap: () async {
+                                      if (_currentFolder == 'draft') {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => ComposeEmailScreen(
+                                              token: widget.token,
+                                              draft: item,
+                                            ),
+                                          ),
+                                        );
+                                        if (mounted) {
+                                          setState(() {
+                                            _drafts = [];
+                                            _error = '';
+                                          });
+                                          _fetchDrafts();
+                                        }
+                                      } else {
+                                        final result = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => EmailDetailScreen(
+                                              emailId: item['id'],
+                                              token: widget.token,
+                                            ),
+                                          ),
+                                        );
+                                        if (result != null && result is Map<String, dynamic>) {
+                                          final updatedIsRead = result['isRead'] as bool?;
+                                          final updatedIsStarred = result['isStarred'] as bool?;
+                                          if (updatedIsRead != null) _updateEmailReadStatus(item['id'], updatedIsRead);
+                                          if (updatedIsStarred != null && mounted) {
+                                            setState(() {
+                                              final emailIndex = _emails.indexWhere((e) => e['id'] == item['id']);
+                                              if (emailIndex != -1) _emails[emailIndex]['isStarred'] = updatedIsStarred;
+                                            });
+                                          }
+                                        }
+                                      }
+                                    },
+                                    child: Container(
+                                      color: _currentFolder == 'draft' ? Colors.grey[100] : (isRead ? Colors.grey[200] : Colors.grey[50]),
+                                      child: ListTile(
+                                        leading: Tooltip(
+                                          message: isStarred ? 'starred' : 'not starred',
+                                          child: MouseRegion(
+                                            cursor: SystemMouseCursors.click,
+                                            child: IconButton(
+                                              icon: Icon(
+                                                isStarred ? Icons.star : Icons.star_border,
+                                                color: isStarred ? Colors.yellow[700] : null,
+                                                size: 20,
+                                              ),
+                                              onPressed: _currentFolder != 'draft'
+                                                  ? () {
+                                                      final newStarStatus = !isStarred;
+                                                      if (mounted) setState(() => item['isStarred'] = newStarStatus);
+                                                      _updateAction(itemId, 'star', newStarStatus);
+                                                    }
+                                                  : null,
+                                              splashRadius: 20,
+                                              iconSize: 20,
+                                              padding: const EdgeInsets.all(4),
+                                              constraints: const BoxConstraints(),
+                                              style: IconButton.styleFrom(
+                                                side: BorderSide(
+                                                  color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
+                                                  width: 1,
+                                                  style: BorderStyle.solid,
+                                                ),
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    ),
-                                  ),
-                                  title: Text(
-                                    item['subject'] ?? 'No Subject',
-                                    style: TextStyle(
-                                      fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
-                                    ),
-                                  ),
-                                  subtitle: _isDetailedView
-                                      ? Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              _currentFolder == 'draft'
-                                                  ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
-                                                  : 'From: ${item['senderPhone']}',
-                                              style: TextStyle(
-                                                fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
-                                              ),
-                                            ),
-                                            Text(
-                                              _getEmailPreview(item['body'] ?? ''),
-                                              style: TextStyle(color: Colors.grey[600]),
-                                            ),
-                                            if (hasAttachments || hasDraftAttachment)
-                                              Row(
-                                                children: [
-                                                  const Icon(Icons.attach_file, size: 16, color: Colors.grey),
-                                                  const SizedBox(width: 4),
-                                                  Text('Attachment', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                                                ],
-                                              ),
-                                          ],
-                                        )
-                                      : Text(
-                                          _currentFolder == 'draft'
-                                              ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
-                                              : 'From: ${item['senderPhone']}',
+                                        title: Text(
+                                          item['subject'] ?? 'No Subject',
                                           style: TextStyle(
                                             fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
                                           ),
                                         ),
-                                  trailing: isHovering
-                                      ? Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Tooltip(
-                                              message: isRead ? 'mark as unread' : 'mark as read',
-                                              child: IconButton(
-                                                icon: Icon(
-                                                  isRead ? Icons.mail : Icons.mail_outline,
-                                                  size: 20,
-                                                ),
-                                                onPressed: _currentFolder != 'draft'
-                                                    ? () {
-                                                        final newReadStatus = !isRead;
-                                                        if (mounted) {
-                                                          setState(() {
-                                                            _emails[index]['isRead'] = newReadStatus;
-                                                          });
-                                                        }
-                                                        _updateAction(itemId, 'read', newReadStatus);
-                                                      }
-                                                    : null,
-                                                splashRadius: 20,
-                                                iconSize: 20,
-                                                padding: const EdgeInsets.all(4),
-                                                constraints: const BoxConstraints(),
-                                                style: IconButton.styleFrom(
-                                                  side: BorderSide(
-                                                    color: Colors.grey[700]!,
-                                                    width: 1,
-                                                    style: BorderStyle.solid,
+                                        subtitle: _isDetailedView
+                                            ? Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    _currentFolder == 'draft'
+                                                        ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
+                                                        : 'From: ${item['senderPhone']}',
+                                                    style: TextStyle(
+                                                      fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
+                                                    ),
                                                   ),
+                                                  Text(
+                                                    _getEmailPreview(item['body'] ?? ''),
+                                                    style: TextStyle(color: Colors.grey[600]),
+                                                  ),
+                                                  if (hasAttachments || hasDraftAttachment)
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.attach_file, size: 16, color: Colors.grey),
+                                                        const SizedBox(width: 4),
+                                                        Text('Attachment', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                                      ],
+                                                    ),
+                                                ],
+                                              )
+                                            : Text(
+                                                _currentFolder == 'draft'
+                                                    ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
+                                                    : 'From: ${item['senderPhone']}',
+                                                style: TextStyle(
+                                                  fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
                                                 ),
                                               ),
-                                            ),
-                                            Tooltip(
-                                              message: 'delete',
-                                              child: IconButton(
-                                                icon: const Icon(Icons.delete, size: 20),
-                                                onPressed: () {
-                                                  _updateAction(itemId, 'trash', true);
-                                                },
-                                                splashRadius: 20,
-                                                iconSize: 20,
-                                                padding: const EdgeInsets.all(4),
-                                                constraints: const BoxConstraints(),
-                                                style: IconButton.styleFrom(
-                                                  side: BorderSide(
-                                                    color: Colors.grey[700]!,
-                                                    width: 1,
-                                                    style: BorderStyle.solid,
+                                        trailing: isHovering
+                                            ? Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Tooltip(
+                                                    message: isRead ? 'mark as unread' : 'mark as read',
+                                                    child: IconButton(
+                                                      icon: Icon(
+                                                        isRead ? Icons.mail : Icons.mail_outline,
+                                                        size: 20,
+                                                      ),
+                                                      onPressed: _currentFolder != 'draft'
+                                                          ? () {
+                                                              final newReadStatus = !isRead;
+                                                              if (mounted) {
+                                                                setState(() {
+                                                                  _emails[index]['isRead'] = newReadStatus;
+                                                                });
+                                                              }
+                                                              _updateAction(itemId, 'read', newReadStatus);
+                                                            }
+                                                          : null,
+                                                      splashRadius: 20,
+                                                      iconSize: 20,
+                                                      padding: const EdgeInsets.all(4),
+                                                      constraints: const BoxConstraints(),
+                                                      style: IconButton.styleFrom(
+                                                        side: BorderSide(
+                                                          color: Colors.grey[700]!,
+                                                          width: 1,
+                                                          style: BorderStyle.solid,
+                                                        ),
+                                                      ),
+                                                    ),
                                                   ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                      : null,
-                                ),
-                              ),
+                                                  Tooltip(
+                                                    message: 'delete',
+                                                    child: IconButton(
+                                                      icon: const Icon(Icons.delete, size: 20),
+                                                      onPressed: () {
+                                                        _updateAction(itemId, 'trash', true);
+                                                      },
+                                                      splashRadius: 20,
+                                                      iconSize: 20,
+                                                      padding: const EdgeInsets.all(4),
+                                                      constraints: const BoxConstraints(),
+                                                      style: IconButton.styleFrom(
+                                                        side: BorderSide(
+                                                          color: Colors.grey[700]!,
+                                                          width: 1,
+                                                          style: BorderStyle.solid,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              )
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
+            ),
+          ],
+        ),
         floatingActionButton: FloatingActionButton(
           onPressed: _navigateToCompose,
           child: const Icon(Icons.edit),
