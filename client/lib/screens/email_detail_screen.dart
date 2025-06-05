@@ -515,6 +515,22 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
             Text('Date: ${_email!['timestamp'] as String? ?? 'N/A'}'),
             const SizedBox(height: 16),
             const Text(
+              'Labels:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            Wrap(
+              spacing: 8.0,
+              children: currentLabels.map<Widget>((label) {
+                return Chip(
+                  label: Text(label),
+                  onDeleted: () {
+                    _assignLabel(widget.emailId, label, false);
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            const Text(
               'Body:',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),

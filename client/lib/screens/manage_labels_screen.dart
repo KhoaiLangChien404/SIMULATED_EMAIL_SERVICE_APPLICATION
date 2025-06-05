@@ -1,235 +1,195 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ManageLabelsScreen extends StatefulWidget {
   final String token;
   const ManageLabelsScreen({required this.token, super.key});
 
   @override
-  _ManageLabelsScreenState createState() => _ManageLabelsScreenState();
+  State<ManageLabelsScreen> createState() => _ManageLabelsScreenState();
 }
 
 class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
   List<String> _labels = [];
-  String _newLabel = '';
   String _error = '';
   bool _isLoading = true;
-
   final String _baseUrl = 'http://localhost:3000';
-  late TextEditingController _newLabelController; // Khai báo controller
+  final TextEditingController _labelController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _newLabelController = TextEditingController(); // Khởi tạo controller
     _fetchLabels();
   }
 
-  @override
-  void dispose() {
-    _newLabelController.dispose(); // Dispose controller
-    super.dispose();
-  }
-
   Future<void> _fetchLabels() async {
-    setState(() => _isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/api/labels'),
+        Uri.parse('$_baseUrl/api/manage-labels'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      print('Labels response: ${response.statusCode}, ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List<dynamic>;
-        setState(() {
-          _labels = data.cast<String>();
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _labels = data.cast<String>();
+            _isLoading = false;
+          });
+        }
       } else {
+        if (mounted) {
+          setState(() {
+            _error = 'Failed to fetch labels: ${response.body}';
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
         setState(() {
-          _error = 'Không thể tải danh sách nhãn: ${response.body}';
+          _error = 'Error fetching labels: $e';
           _isLoading = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        _error = 'Lỗi khi tải nhãn: $e';
-        _isLoading = false;
-      });
     }
   }
 
   Future<void> _addLabel() async {
-    if (_newLabel.isEmpty) {
-      setState(() => _error = 'Tên nhãn không được để trống');
+    final newLabel = _labelController.text.trim();
+    if (newLabel.isEmpty) {
+      setState(() {
+        _error = 'Label cannot be empty';
+      });
       return;
     }
+
+    // Thêm nhãn bằng cách gán vào một email giả định (hoặc có thể tạo API mới để thêm trực tiếp vào bảng labels)
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/labels/add'),
+        Uri.parse('$_baseUrl/api/email-labels'),
         headers: {
           'Authorization': 'Bearer ${widget.token}',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'label': _newLabel}),
+        body: jsonEncode({
+          'emailId': -1, // Email giả định để tạo nhãn
+          'label': newLabel,
+          'value': true,
+        }),
       ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 201) {
+
+      if (response.statusCode == 200) {
         setState(() {
-          _labels.add(_newLabel);
-          _newLabel = '';
-          _newLabelController.clear(); // Xóa nội dung TextField
+          _labels.add(newLabel);
+          _labelController.clear();
           _error = '';
         });
       } else {
-        setState(() => _error = 'Không thể thêm nhãn: ${response.body}');
+        setState(() {
+          _error = 'Failed to add label: ${response.body}';
+        });
       }
     } catch (e) {
-      setState(() => _error = 'Lỗi khi thêm nhãn: $e');
+      setState(() {
+        _error = 'Error adding label: $e';
+      });
     }
   }
 
-  Future<void> _removeLabel(String label) async {
+  Future<void> _deleteLabel(String label) async {
     try {
+      // Xóa nhãn khỏi email-labels trước
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/labels/remove'),
+        Uri.parse('$_baseUrl/api/email-labels'),
         headers: {
           'Authorization': 'Bearer ${widget.token}',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'label': label}),
+        body: jsonEncode({
+          'emailId': -1, // Email giả định
+          'label': label,
+          'value': false,
+        }),
       ).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
         setState(() {
           _labels.remove(label);
           _error = '';
         });
       } else {
-        setState(() => _error = 'Không thể xóa nhãn: ${response.body}');
-      }
-    } catch (e) {
-      setState(() => _error = 'Lỗi khi xóa nhãn: $e');
-    }
-  }
-
-  Future<void> _renameLabel(String oldLabel, String newLabel) async {
-    if (newLabel.isEmpty) {
-      setState(() => _error = 'Tên nhãn mới không được để trống');
-      return;
-    }
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/labels/rename'),
-        headers: {
-          'Authorization': 'Bearer ${widget.token}',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'oldLabel': oldLabel, 'newLabel': newLabel}),
-      ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
         setState(() {
-          final index = _labels.indexOf(oldLabel);
-          if (index != -1) {
-            _labels[index] = newLabel;
-          }
-          _error = '';
+          _error = 'Failed to delete label: ${response.body}';
         });
-      } else {
-        setState(() => _error = 'Không thể đổi tên nhãn: ${response.body}');
       }
     } catch (e) {
-      setState(() => _error = 'Lỗi khi đổi tên nhãn: $e');
+      setState(() {
+        _error = 'Error deleting label: $e';
+      });
     }
   }
 
   @override
+  void dispose() {
+    _labelController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.ltr, // Đặt hướng văn bản mặc định cho toàn màn hình
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Quản lý nhãn')),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _newLabelController, // Sử dụng controller
-                            onChanged: (value) => setState(() => _newLabel = value),
-                            decoration: const InputDecoration(labelText: 'Nhãn mới'),
-                            textDirection: TextDirection.ltr,
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Manage Labels'),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  if (_error.isNotEmpty)
+                    Text(
+                      _error,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _labelController,
+                          decoration: const InputDecoration(
+                            labelText: 'New Label',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.add),
-                          onPressed: _addLabel,
-                        ),
-                      ],
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _labels.length,
-                        itemBuilder: (context, index) {
-                          final label = _labels[index];
-                          return ListTile(
-                            title: Text(label),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  onPressed: () => _removeLabel(label),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () async {
-                                    final newLabel = await showDialog<String>(
-                                      context: context,
-                                      builder: (context) {
-                                        final controller = TextEditingController();
-                                        return Directionality(
-                                          textDirection: TextDirection.ltr, // Đặt LTR cho dialog
-                                          child: AlertDialog(
-                                            title: const Text('Đổi tên nhãn'),
-                                            content: TextField(
-                                              controller: controller,
-                                              decoration: const InputDecoration(labelText: 'Tên mới'),
-                                              textDirection: TextDirection.ltr,
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(context),
-                                                child: const Text('Hủy'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(context, controller.text),
-                                                child: const Text('Lưu'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    );
-                                    if (newLabel != null && newLabel.isNotEmpty) {
-                                      _renameLabel(label, newLabel);
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        },
                       ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _addLabel,
+                        child: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: _labels.length,
+                      itemBuilder: (context, index) {
+                        final label = _labels[index];
+                        return ListTile(
+                          title: Text(label),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete),
+                            onPressed: () => _deleteLabel(label),
+                          ),
+                        );
+                      },
                     ),
-                    if (_error.isNotEmpty) Text(_error, style: const TextStyle(color: Colors.red)),
-                  ],
-                ),
+                  ),
+                ],
               ),
-      ),
+            ),
     );
   }
 }

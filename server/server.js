@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random * 1E9);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
@@ -88,12 +88,22 @@ db.run(`
 `);
 
 db.run(`
+  CREATE TABLE IF NOT EXISTS labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER,
+    label TEXT UNIQUE,
+    FOREIGN KEY (userId) REFERENCES users(id)
+  )
+`);
+
+db.run(`
   CREATE TABLE IF NOT EXISTS email_labels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     emailId INTEGER,
-    label TEXT,
+    labelId INTEGER,
     FOREIGN KEY (emailId) REFERENCES emails(id),
-    UNIQUE(emailId, label)
+    FOREIGN KEY (labelId) REFERENCES labels(id),
+    UNIQUE(emailId, labelId)
   )
 `);
 
@@ -281,9 +291,10 @@ app.get('/api/emails', authenticate, (req, res) => {
   const startDate = req.query.startDate;
   const endDate = req.query.endDate;
   const hasAttachments = req.query.hasAttachments === 'true';
+  const labels = req.query.labels ? req.query.labels.split(',') : [];
 
-  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s', 
-    folder, search, fromMe, startDate, endDate, hasAttachments);
+  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s', 
+    folder, search, fromMe, startDate, endDate, hasAttachments, labels);
 
   let query = '';
   let params = [];
@@ -332,6 +343,18 @@ app.get('/api/emails', authenticate, (req, res) => {
   // Add hasAttachments condition
   if (hasAttachments) {
     conditions.push('EXISTS (SELECT 1 FROM attachments a WHERE a.emailId = e.id)');
+  }
+
+  // Add labels condition (sử dụng cột label thay vì labelId)
+  if (labels.length > 0) {
+    conditions.push(`e.id IN (
+      SELECT el.emailId 
+      FROM email_labels el 
+      WHERE el.label IN (${labels.map(() => '?').join(',')})
+      GROUP BY el.emailId
+      HAVING COUNT(DISTINCT el.label) = ?
+    )`);
+    params.push(...labels, labels.length);
   }
 
   query = `
@@ -391,18 +414,22 @@ app.get('/api/emails/:id', authenticate, (req, res) => {
       if (err || !email) return res.status(404).json({ error: 'Email not found' });
       db.all('SELECT filePath, fileType, originalFileName FROM attachments WHERE emailId = ?', [emailId], (err, attachments) => {
         if (err) return res.status(400).json({ error: 'Failed to fetch attachments' });
-        db.all('SELECT label FROM email_labels WHERE emailId = ?', [emailId], (err, labels) => {
-          if (err) return res.status(400).json({ error: 'Failed to fetch labels' });
-          email.isRead = email.isRead === 1 || email.isRead === '1';
-          email.isStarred = email.isStarred === 1 || email.isStarred === '1';
-          email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
-          email.attachments = attachments.map(attachment => ({
-            ...attachment,
-            originalFileName: decodeURIComponent(attachment.originalFileName || ''),
-          }));
-          email.labels = labels.map(label => label.label);
-          res.json(email);
-        });
+        db.all(
+          'SELECT label FROM email_labels WHERE emailId = ?', // Sử dụng cột label thay vì join với bảng labels
+          [emailId],
+          (err, labels) => {
+            if (err) return res.status(400).json({ error: 'Failed to fetch labels' });
+            email.isRead = email.isRead === 1 || email.isRead === '1';
+            email.isStarred = email.isStarred === 1 || email.isStarred === '1';
+            email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
+            email.attachments = attachments.map(attachment => ({
+              ...attachment,
+              originalFileName: decodeURIComponent(attachment.originalFileName || ''),
+            }));
+            email.labels = labels.map(label => label.label);
+            res.json(email);
+          }
+        );
       });
     }
   );
@@ -427,7 +454,7 @@ app.post('/api/email-labels', authenticate, (req, res) => {
         db.run(
           'INSERT OR IGNORE INTO email_labels (emailId, label) VALUES (?, ?)',
           [emailId, label],
-          function (err) {
+          function(err) {
             if (err) {
               console.error('Insert label error:', err);
               return res.status(500).json({ error: 'Failed to assign label' });
@@ -439,7 +466,7 @@ app.post('/api/email-labels', authenticate, (req, res) => {
         db.run(
           'DELETE FROM email_labels WHERE emailId = ? AND label = ?',
           [emailId, label],
-          function (err) {
+          function(err) {
             if (err) {
               console.error('Delete label error:', err);
               return res.status(500).json({ error: 'Failed to remove label' });
@@ -507,9 +534,10 @@ app.get('/api/drafts', authenticate, (req, res) => {
   const startDate = req.query.startDate;
   const endDate = req.query.endDate;
   const hasAttachments = req.query.hasAttachments === 'true';
+  const labels = req.query.labels ? req.query.labels.split(',') : [];
 
-  console.log('Drafts query: search=%s, startDate=%s, endDate=%s, hasAttachments=%s', 
-    search, startDate, endDate, hasAttachments);
+  console.log('Drafts query: search=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s', 
+    search, startDate, endDate, hasAttachments, labels);
 
   let conditions = ['senderPhone = ?'];
   let params = [req.user.phone];
@@ -529,6 +557,12 @@ app.get('/api/drafts', authenticate, (req, res) => {
   // Add hasAttachments condition
   if (hasAttachments) {
     conditions.push('attachment IS NOT NULL AND attachment != ""');
+  }
+
+  // Add labels condition
+  if (labels.length > 0) {
+    // Drafts không hỗ trợ nhãn trực tiếp, nhưng có thể mở rộng trong tương lai
+    // Hiện tại bỏ qua lọc nhãn cho drafts
   }
 
   let query = `
@@ -576,40 +610,54 @@ app.delete('/api/delete-draft/:id', authenticate, (req, res) => {
 // Update Email Actions
 app.post('/api/email-actions', authenticate, (req, res) => {
   const { emailId, action, value } = req.body;
-  if (!emailId || !action) return res.status(400).json({ error: 'Email ID and action are required' });
-  const updates = {
-    'read': 'isRead = ?',
-    'star': 'isStarred = ?',
-    'trash': 'isTrashed = ?',
-  }[action];
-  if (!updates) return res.status(400).json({ error: 'Invalid action' });
+  if (!emailId || !action || value === undefined) {
+    return res.status(400).json({ error: 'emailId, action, and value are required' });
+  }
 
-  db.run(
-    `UPDATE emails SET ${updates} WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)`,
-    [value ? 1 : 0, emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-    function (err) {
-      if (err) {
-        console.error('Database update error:', err);
-        return res.status(400).json({ error: 'Failed to update email action' });
-      }
-      if (this.changes === 0) {
-        console.log(`No email updated for emailId ${emailId}, user ${req.user.phone}`);
+  db.get(
+    'SELECT id FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    (err, email) => {
+      if (err || !email) {
         return res.status(404).json({ error: 'Email not found or unauthorized' });
       }
-      console.log(`Updated email ${emailId} with action ${action} to ${value}`);
-      res.json({ message: 'Action updated' });
+
+      let updateQuery;
+      let params = [value ? 1 : 0, emailId];
+
+      switch (action.toLowerCase()) {
+        case 'read':
+          updateQuery = 'UPDATE emails SET isRead = ? WHERE id = ?';
+          break;
+        case 'star':
+          updateQuery = 'UPDATE emails SET isStarred = ? WHERE id = ?';
+          break;
+        case 'trash':
+          updateQuery = 'UPDATE emails SET isTrashed = ? WHERE id = ?';
+          break;
+        default:
+          return res.status(400).json({ error: 'Invalid action' });
+      }
+
+      db.run(updateQuery, params, (err) => {
+        if (err) {
+          console.error('Update action error:', err);
+          return res.status(400).json({ error: `Failed to update ${action}` });
+        }
+        res.status(200).json({ success: true });
+      });
     }
   );
 });
 
-// Get Labels
+// Get Available Labels
 app.get('/api/labels', authenticate, (req, res) => {
   db.all(
     'SELECT DISTINCT label FROM email_labels WHERE emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
     [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
     (err, rows) => {
       if (err) {
-        console.error('Error fetching labels:', err);
+        console.error('Fetch labels error:', err);
         return res.status(400).json({ error: 'Failed to fetch labels' });
       }
       const labels = rows.map(row => row.label);
@@ -618,92 +666,82 @@ app.get('/api/labels', authenticate, (req, res) => {
   );
 });
 
-// Add a new label
-app.post('/api/labels/add', authenticate, (req, res) => {
-  const { label } = req.body;
-  if (!label || label.trim() === '') {
-    return res.status(400).json({ error: 'Label is required and cannot be empty' });
-  }
-  db.get(
-    'SELECT label FROM email_labels WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
-    [label.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-    (err, row) => {
+// Manage Labels (Tạm thời chỉ trả về danh sách nhãn hiện tại, có thể mở rộng)
+app.get('/api/manage-labels', authenticate, (req, res) => {
+  db.all(
+    'SELECT DISTINCT label FROM email_labels WHERE emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
+    [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    (err, rows) => {
       if (err) {
-        console.error('Error checking label:', err);
-        return res.status(500).json({ error: 'Server error' });
+        console.error('Manage labels error:', err);
+        return res.status(400).json({ error: 'Failed to fetch labels' });
       }
-      if (row) {
-        return res.status(400).json({ error: 'Label already exists' });
-      }
-      db.get(
-        'SELECT id FROM emails WHERE (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?) LIMIT 1',
-        [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-        (err, email) => {
-          if (err || !email) {
-            return res.status(404).json({ error: 'No emails found to associate label' });
-          }
-          db.run(
-            'INSERT INTO email_labels (emailId, label) VALUES (?, ?)',
-            [email.id, label.trim()],
-            (err) => {
-              if (err) {
-                console.error('Error adding label:', err);
-                return res.status(400).json({ error: 'Failed to add label' });
-              }
-              res.status(201).json({ message: 'Label added', label: label.trim() });
+      res.json(rows.map(row => row.label));
+    }
+  );
+});
+
+// Endpoint to migrate labels (run once manually)
+app.post('/api/migrate-labels', authenticate, (req, res) => {
+  db.all('SELECT DISTINCT label FROM email_labels', [], (err, existingLabels) => {
+    if (err) {
+      console.error('Error fetching existing labels:', err);
+      return res.status(500).json({ error: 'Failed to fetch existing labels' });
+    }
+
+    let migrationCompleted = false;
+    existingLabels.forEach(labelRow => {
+      const label = labelRow.label;
+      db.get('SELECT id FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
+        if (err || !user) return;
+
+        db.run(
+          'INSERT OR IGNORE INTO labels (userId, label) VALUES (?, ?)',
+          [user.id, label],
+          function(err) {
+            if (err) {
+              console.error('Error inserting label:', err);
+              return;
             }
-          );
-        }
-      );
+            const labelId = this.lastID;
+            db.run(
+              'INSERT OR IGNORE INTO email_labels_new (emailId, labelId) SELECT emailId, ? FROM email_labels WHERE label = ?',
+              [labelId, label],
+              (err) => {
+                if (err) console.error('Error migrating email_labels:', err);
+                if (!migrationCompleted && existingLabels.indexOf(labelRow) === existingLabels.length - 1) {
+                  migrationCompleted = true;
+                  db.run('DROP TABLE IF EXISTS email_labels', (err) => {
+                    if (err) console.error('Error dropping old email_labels:', err);
+                    db.run('ALTER TABLE email_labels_new RENAME TO email_labels', (err) => {
+                      if (err) console.error('Error renaming email_labels_new:', err);
+                      res.status(200).json({ message: 'Labels migration completed' });
+                    });
+                  });
+                }
+              }
+            );
+          }
+        );
+      });
+    });
+
+    if (existingLabels.length === 0) {
+      db.run('DROP TABLE IF EXISTS email_labels', (err) => {
+        if (err) console.error('Error dropping old email_labels:', err);
+        db.run('ALTER TABLE email_labels_new RENAME TO email_labels', (err) => {
+          if (err) console.error('Error renaming email_labels_new:', err);
+          res.status(200).json({ message: 'No labels to migrate, migration completed' });
+        });
+      });
     }
-  );
+  });
 });
 
-// Remove a label
-app.post('/api/labels/remove', authenticate, (req, res) => {
-  const { label } = req.body;
-  if (!label || label.trim() === '') {
-    return res.status(400).json({ error: 'Label is required and cannot be empty' });
-  }
-  db.run(
-    'DELETE FROM email_labels WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
-    [label.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-    function (err) {
-      if (err) {
-        console.error('Error removing label:', err);
-        return res.status(400).json({ error: 'Failed to remove label' });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Label not found or unauthorized' });
-      }
-      res.json({ message: 'Label removed' });
-    }
-  );
+// Serve static files
+app.use('/uploads', express.static('uploads'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-// Rename a label
-app.post('/api/labels/rename', authenticate, (req, res) => {
-  const { oldLabel, newLabel } = req.body;
-  if (!oldLabel || !newLabel || oldLabel.trim() === '' || newLabel.trim() === '') {
-    return res.status(400).json({ error: 'Old label and new label are required and cannot be empty' });
-  }
-  db.run(
-    'UPDATE email_labels SET label = ? WHERE label = ? AND emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
-    [newLabel.trim(), oldLabel.trim(), req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-    function (err) {
-      if (err) {
-        console.error('Error renaming label:', err);
-        return res.status(400).json({ error: 'Failed to rename label' });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Label not found or unauthorized' });
-      }
-      res.json({ message: 'Label renamed', oldLabel: oldLabel.trim(), newLabel: newLabel.trim() });
-    }
-  );
-});
-
-// Serve files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-app.listen(3000, () => console.log('Server running on port 3000'));
