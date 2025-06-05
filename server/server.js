@@ -29,9 +29,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-const db = new sqlite3.Database('email.db', (err) => {
-  if (err) console.error(err);
+const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+  if (err) console.error('Database connection error:', err);
   console.log('Connected to SQLite database');
+  db.run('PRAGMA encoding = "UTF-8"');
 });
 
 // Database schema creation
@@ -89,7 +90,7 @@ db.run(`
 
 db.run(`
   CREATE TABLE IF NOT EXISTS labels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    labelId INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER,
     label TEXT UNIQUE,
     FOREIGN KEY (userId) REFERENCES users(id)
@@ -118,6 +119,7 @@ const authenticate = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
+    console.error('Token verification error:', err);
     res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -126,26 +128,43 @@ const authenticate = (req, res, next) => {
 app.post('/api/register', upload.single('profilePic'), async (req, res) => {
   const { phone, password, name } = req.body;
   const profilePic = req.file ? `/uploads/${req.file.filename}` : null;
-  const hashedPassword = await bcrypt.hash(password, 10);
-  db.run(
-    'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled) VALUES (?, ?, ?, ?, ?)',
-    [phone, hashedPassword, name, profilePic, false],
-    (err) => {
-      if (err) return res.status(400).json({ error: 'Phone number already exists' });
-      res.status(201).json({ message: 'User registered' });
-    }
-  );
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    db.run(
+      'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled) VALUES (?, ?, ?, ?, ?)',
+      [phone, hashedPassword, name, profilePic, false],
+      (err) => {
+        if (err) {
+          console.error('Registration error:', err);
+          return res.status(400).json({ error: 'Phone number already exists' });
+        }
+        res.status(201).json({ message: 'User registered' });
+      }
+    );
+  } catch (e) {
+    console.error('Registration exception:', e);
+    res.status(500).json({ error: 'Server error during registration' });
+  }
 });
 
 // Login
 app.post('/api/login', async (req, res) => {
   const { phone, password } = req.body;
   db.get('SELECT * FROM users WHERE phone = ?', [phone], async (err, user) => {
-    if (err || !user) return res.status(400).json({ error: 'User not found' });
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(400).json({ error: 'Invalid password' });
-    const token = jwt.sign({ phone: user.phone, id: user.id }, SECRET_KEY, { expiresIn: '1h' });
-    res.json({ token, twoFaEnabled: user.twoFaEnabled });
+    if (err) {
+      console.error('Login database error:', err);
+      return res.status(500).json({ error: 'Server error' });
+    }
+    if (!user) return res.status(400).json({ error: 'User not found' });
+    try {
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) return res.status(400).json({ error: 'Invalid password' });
+      const token = jwt.sign({ phone: user.phone, id: user.id }, SECRET_KEY, { expiresIn: '1h' });
+      res.json({ token, twoFaEnabled: user.twoFaEnabled });
+    } catch (e) {
+      console.error('Login exception:', e);
+      res.status(500).json({ error: 'Server error' });
+    }
   });
 });
 
@@ -190,7 +209,11 @@ app.post('/api/verify-2fa', authenticate, (req, res) => {
 // Profile
 app.get('/api/profile', authenticate, (req, res) => {
   db.get('SELECT phone, name, profilePic, twoFaEnabled FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
-    if (err || !user) return res.status(400).json({ error: 'User not found' });
+    if (err) {
+      console.error('Profile fetch error:', err);
+      return res.status(500).json({ error: 'Server error' });
+    }
+    if (!user) return res.status(400).json({ error: 'User not found' });
     res.json(user);
   });
 });
@@ -205,9 +228,14 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
     values.push(name);
   }
   if (password) {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    updates.push('password = ?');
-    values.push(hashedPassword);
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      updates.push('password = ?');
+      values.push(hashedPassword);
+    } catch (e) {
+      console.error('Password hash error:', e);
+      return res.status(500).json({ error: 'Server error' });
+    }
   }
   if (profilePic) {
     updates.push('profilePic = ?');
@@ -227,7 +255,11 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
       return res.status(400).json({ error: 'Update failed' });
     }
     db.get('SELECT phone, name, profilePic, twoFaEnabled FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
-      if (err || !user) return res.status(400).json({ error: 'User not found after update' });
+      if (err) {
+        console.error('Profile fetch error after update:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!user) return res.status(400).json({ error: 'User not found after update' });
       res.json(user);
     });
   });
@@ -242,7 +274,11 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
   }
   try {
     db.get('SELECT id FROM users WHERE phone = ?', [recipientPhone], (err, user) => {
-      if (err || !user) {
+      if (err) {
+        console.error('Recipient check error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!user) {
         return res.status(400).json({ error: 'Recipient phone number not found' });
       }
       db.run(
@@ -250,7 +286,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
         [req.user.phone, recipientPhone, cc || '', bcc || '', subject, body],
         function (err) {
           if (err) {
-            console.error('Database error:', err);
+            console.error('Email insertion error:', err);
             return res.status(400).json({ error: 'Failed to send email' });
           }
           const emailId = this.lastID;
@@ -284,6 +320,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
   }
 });
 
+// Get Emails
 app.get('/api/emails', authenticate, (req, res) => {
   const folder = req.query.folder || 'inbox';
   const search = (req.query.search || '').toLowerCase();
@@ -292,9 +329,10 @@ app.get('/api/emails', authenticate, (req, res) => {
   const endDate = req.query.endDate;
   const hasAttachments = req.query.hasAttachments === 'true';
   const labels = req.query.labels ? req.query.labels.split(',') : [];
+  const userId = req.user.id;
 
-  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s', 
-    folder, search, fromMe, startDate, endDate, hasAttachments, labels);
+  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s, userId=%s', 
+    folder, search, fromMe, startDate, endDate, hasAttachments, labels, userId);
 
   let query = '';
   let params = [];
@@ -345,80 +383,115 @@ app.get('/api/emails', authenticate, (req, res) => {
     conditions.push('EXISTS (SELECT 1 FROM attachments a WHERE a.emailId = e.id)');
   }
 
-  // Add labels condition (sử dụng cột label thay vì labelId)
-  if (labels.length > 0) {
-    conditions.push(`e.id IN (
-      SELECT el.emailId 
-      FROM email_labels el 
-      WHERE el.label IN (${labels.map(() => '?').join(',')})
-      GROUP BY el.emailId
-      HAVING COUNT(DISTINCT el.label) = ?
-    )`);
-    params.push(...labels, labels.length);
+  function executeQuery(labelIds = []) {
+    if (labelIds.length > 0) {
+      conditions.push(`e.id IN (
+        SELECT el.emailId 
+        FROM email_labels el 
+        WHERE el.labelId IN (${labelIds.map(() => '?').join(',')})
+      )`);
+      params.push(...labelIds);
+    }
+
+    if (conditions.length === 0) {
+      conditions.push('1=1'); // Fallback condition to avoid empty WHERE clause
+    }
+
+    query = `
+      SELECT e.*, 
+             (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+             (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+             (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+             (SELECT GROUP_CONCAT(l.label) FROM email_labels el JOIN labels l ON el.labelId = l.id WHERE el.emailId = e.id AND l.userId = ?) as labels
+      FROM emails e 
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY e.timestamp DESC`;
+
+    params.push(userId); // Add userId for labels query
+
+    console.log('Emails SQL query:', query);
+    console.log('Query params:', params);
+
+    db.all(query, params, (err, emails) => {
+      if (err) {
+        console.error('Emails query error:', err);
+        return res.status(500).json({ error: 'Server error while fetching emails', details: err.message });
+      }
+      const result = emails.map(email => {
+        const attachments = [];
+        if (email.attachmentPaths && email.attachmentTypes && email.attachmentNames) {
+          const paths = email.attachmentPaths.split(',');
+          const types = email.attachmentTypes.split(',');
+          const names = email.attachmentNames.split(',');
+          for (let i = 0; i < paths.length; i++) {
+            attachments.push({
+              filePath: paths[i],
+              fileType: types[i],
+              originalFileName: decodeURIComponent(names[i] || ''),
+            });
+          }
+        }
+        return {
+          ...email,
+          attachments,
+          labels: email.labels ? email.labels.split(',') : [],
+          attachmentPaths: undefined,
+          attachmentTypes: undefined,
+          attachmentNames: undefined,
+          isRead: email.isRead === 1 || email.isRead === '1',
+          isStarred: email.isStarred === 1 || email.isStarred === '1',
+          isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
+        };
+      });
+      console.log('Emails response:', result);
+      res.json(result);
+    });
   }
 
-  query = `
-    SELECT e.*, 
-           (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-           (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-           (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-           (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-    FROM emails e 
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY e.timestamp DESC`;
-
-  console.log('Emails SQL query:', query, params);
-  db.all(query, params, (err, emails) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(400).json({ error: 'Failed to fetch emails' });
-    }
-    const result = emails.map(email => {
-      const attachments = [];
-      if (email.attachmentPaths && email.attachmentTypes && email.attachmentNames) {
-        const paths = email.attachmentPaths.split(',');
-        const types = email.attachmentTypes.split(',');
-        const names = email.attachmentNames.split(',');
-        for (let i = 0; i < paths.length; i++) {
-          attachments.push({
-            filePath: paths[i],
-            fileType: types[i],
-            originalFileName: decodeURIComponent(names[i] || ''),
-          });
-        }
+  if (labels.length > 0) {
+    db.all('SELECT id FROM labels WHERE userId = ? AND label IN (' + labels.map(() => '?').join(',') + ')', [userId, ...labels], (err, labelRows) => {
+      if (err) {
+        console.error('Error checking labels:', err);
+        return res.status(500).json({ error: 'Server error while fetching labels', details: err.message });
       }
-      return {
-        ...email,
-        attachments,
-        labels: email.labels ? email.labels.split(',') : [],
-        attachmentPaths: undefined,
-        attachmentTypes: undefined,
-        attachmentNames: undefined,
-        isRead: email.isRead === 1 || email.isRead === '1',
-        isStarred: email.isStarred === 1 || email.isStarred === '1',
-        isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
-      };
+      const labelIds = labelRows.map(row => row.id);
+      if (labelIds.length === 0) {
+        console.log('No valid labels found for userId', userId, ':', labels);
+        return res.status(200).json([]); // Return empty array if no labels match
+      }
+      executeQuery(labelIds);
     });
-    console.log('Emails response:', result);
-    res.json(result);
-  });
+  } else {
+    executeQuery();
+  }
 });
 
 // Get Email with Attachments and Labels
 app.get('/api/emails/:id', authenticate, (req, res) => {
   const emailId = req.params.id;
+  const userId = req.user.id;
   db.get(
     'SELECT * FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
     [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
     (err, email) => {
-      if (err || !email) return res.status(404).json({ error: 'Email not found' });
+      if (err) {
+        console.error('Email fetch error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!email) return res.status(404).json({ error: 'Email not found' });
       db.all('SELECT filePath, fileType, originalFileName FROM attachments WHERE emailId = ?', [emailId], (err, attachments) => {
-        if (err) return res.status(400).json({ error: 'Failed to fetch attachments' });
+        if (err) {
+          console.error('Attachment fetch error:', err);
+          return res.status(500).json({ error: 'Failed to fetch attachments' });
+        }
         db.all(
-          'SELECT label FROM email_labels WHERE emailId = ?', // Sử dụng cột label thay vì join với bảng labels
-          [emailId],
+          'SELECT l.label FROM email_labels el JOIN labels l ON el.labelId = l.id WHERE el.emailId = ? AND l.userId = ?',
+          [emailId, userId],
           (err, labels) => {
-            if (err) return res.status(400).json({ error: 'Failed to fetch labels' });
+            if (err) {
+              console.error('Label fetch error:', err);
+              return res.status(500).json({ error: 'Failed to fetch labels' });
+            }
             email.isRead = email.isRead === 1 || email.isRead === '1';
             email.isStarred = email.isStarred === 1 || email.isStarred === '1';
             email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
@@ -438,6 +511,7 @@ app.get('/api/emails/:id', authenticate, (req, res) => {
 // Assign/Remove Labels
 app.post('/api/email-labels', authenticate, (req, res) => {
   const { emailId, label, value } = req.body;
+  const userId = req.user.id;
   if (!emailId || !label || value === undefined) {
     return res.status(400).json({ error: 'emailId, label, and value are required' });
   }
@@ -446,35 +520,50 @@ app.post('/api/email-labels', authenticate, (req, res) => {
     'SELECT id FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
     [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
     (err, email) => {
-      if (err || !email) {
+      if (err) {
+        console.error('Email check error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!email) {
         return res.status(404).json({ error: 'Email not found or unauthorized' });
       }
 
-      if (value) {
-        db.run(
-          'INSERT OR IGNORE INTO email_labels (emailId, label) VALUES (?, ?)',
-          [emailId, label],
-          function(err) {
-            if (err) {
-              console.error('Insert label error:', err);
-              return res.status(500).json({ error: 'Failed to assign label' });
+      db.get('SELECT id FROM labels WHERE label = ? AND userId = ?', [label, userId], (err, labelRow) => {
+        if (err) {
+          console.error('Label fetch error:', err);
+          return res.status(500).json({ error: 'Server error' });
+        }
+        if (!labelRow) {
+          return res.status(404).json({ error: 'Label not found' });
+        }
+        const labelId = labelRow.id;
+
+        if (value) {
+          db.run(
+            'INSERT OR IGNORE INTO email_labels (emailId, labelId) VALUES (?, ?)',
+            [emailId, labelId],
+            function(err) {
+              if (err) {
+                console.error('Insert label error:', err);
+                return res.status(500).json({ error: 'Failed to assign label' });
+              }
+              res.status(200).json({ success: true });
             }
-            res.status(200).json({ success: true });
-          }
-        );
-      } else {
-        db.run(
-          'DELETE FROM email_labels WHERE emailId = ? AND label = ?',
-          [emailId, label],
-          function(err) {
-            if (err) {
-              console.error('Delete label error:', err);
-              return res.status(500).json({ error: 'Failed to remove label' });
+          );
+        } else {
+          db.run(
+            'DELETE FROM email_labels WHERE emailId = ? AND labelId = ?',
+            [emailId, labelId],
+            function(err) {
+              if (err) {
+                console.error('Delete label error:', err);
+                return res.status(500).json({ error: 'Failed to remove label' });
+              }
+              res.status(200).json({ success: true });
             }
-            res.status(200).json({ success: true });
-          }
-        );
-      }
+          );
+        }
+      });
     }
   );
 });
@@ -482,11 +571,20 @@ app.post('/api/email-labels', authenticate, (req, res) => {
 // Serve file for download with original file name
 app.get('/api/download/:filePath', authenticate, (req, res) => {
   const filePath = decodeURIComponent(req.params.filePath);
-  const fullPath = path.join(__dirname, 'uploads', filePath.split('/').pop());
+  const fullPath = path.join(__dirname, 'Uploads', filePath.split('/').pop());
   db.get('SELECT originalFileName FROM attachments WHERE filePath = ?', [filePath], (err, attachment) => {
-    if (err || !attachment) return res.status(404).json({ error: 'File not found' });
+    if (err) {
+      console.error('Attachment fetch error:', err);
+      return res.status(500).json({ error: 'Server error' });
+    }
+    if (!attachment) return res.status(404).json({ error: 'File not found' });
     res.setHeader('Content-Disposition', `attachment; filename="${decodeURIComponent(attachment.originalFileName)}"`);
-    res.sendFile(fullPath);
+    res.sendFile(fullPath, (err) => {
+      if (err) {
+        console.error('File send error:', err);
+        res.status(500).json({ error: 'Failed to send file' });
+      }
+    });
   });
 });
 
@@ -529,6 +627,7 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
   }
 });
 
+// Get Drafts
 app.get('/api/drafts', authenticate, (req, res) => {
   const search = (req.query.search || '').toLowerCase();
   const startDate = req.query.startDate;
@@ -559,10 +658,9 @@ app.get('/api/drafts', authenticate, (req, res) => {
     conditions.push('attachment IS NOT NULL AND attachment != ""');
   }
 
-  // Add labels condition
+  // Add labels condition (drafts không hỗ trợ nhãn trực tiếp)
   if (labels.length > 0) {
-    // Drafts không hỗ trợ nhãn trực tiếp, nhưng có thể mở rộng trong tương lai
-    // Hiện tại bỏ qua lọc nhãn cho drafts
+    // Bỏ qua vì drafts chưa hỗ trợ nhãn
   }
 
   let query = `
@@ -571,11 +669,13 @@ app.get('/api/drafts', authenticate, (req, res) => {
     ORDER BY timestamp DESC
   `;
 
-  console.log('Drafts SQL query:', query, params);
+  console.log('Drafts SQL query:', query);
+  console.log('Query params:', params);
+
   db.all(query, params, (err, drafts) => {
     if (err) {
-      console.error('Database error:', err);
-      return res.status(400).json({ error: 'Failed to fetch drafts' });
+      console.error('Drafts query error:', err);
+      return res.status(400).json({ error: 'Failed to fetch drafts', details: err.message });
     }
     const result = drafts.map(draft => ({
       ...draft,
@@ -585,7 +685,7 @@ app.get('/api/drafts', authenticate, (req, res) => {
   });
 });
 
-// Update Draft Action (Loại bỏ vì drafts không có cột isRead)
+// Update Draft Action
 app.post('/api/update-draft-action', authenticate, (req, res) => {
   return res.status(400).json({ error: 'Drafts do not support actions like read' });
 });
@@ -594,7 +694,11 @@ app.post('/api/update-draft-action', authenticate, (req, res) => {
 app.delete('/api/delete-draft/:id', authenticate, (req, res) => {
   const draftId = req.params.id;
   db.get('SELECT * FROM drafts WHERE id = ? AND senderPhone = ?', [draftId, req.user.phone], (err, draft) => {
-    if (err || !draft) {
+    if (err) {
+      console.error('Draft fetch error:', err);
+      return res.status(500).json({ error: 'Server error' });
+    }
+    if (!draft) {
       return res.status(404).json({ error: 'Draft not found or unauthorized' });
     }
     db.run('DELETE FROM drafts WHERE id = ?', [draftId], function (err) {
@@ -618,7 +722,11 @@ app.post('/api/email-actions', authenticate, (req, res) => {
     'SELECT id FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
     [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
     (err, email) => {
-      if (err || !email) {
+      if (err) {
+        console.error('Email check error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!email) {
         return res.status(404).json({ error: 'Email not found or unauthorized' });
       }
 
@@ -653,12 +761,12 @@ app.post('/api/email-actions', authenticate, (req, res) => {
 // Get Available Labels
 app.get('/api/labels', authenticate, (req, res) => {
   db.all(
-    'SELECT DISTINCT label FROM email_labels WHERE emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
-    [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
+    'SELECT label FROM labels WHERE userId = (SELECT id FROM users WHERE phone = ?)',
+    [req.user.phone],
     (err, rows) => {
       if (err) {
         console.error('Fetch labels error:', err);
-        return res.status(400).json({ error: 'Failed to fetch labels' });
+        return res.status(500).json({ error: 'Failed to fetch labels', details: err.message });
       }
       const labels = rows.map(row => row.label);
       res.json(labels);
@@ -666,75 +774,91 @@ app.get('/api/labels', authenticate, (req, res) => {
   );
 });
 
-// Manage Labels (Tạm thời chỉ trả về danh sách nhãn hiện tại, có thể mở rộng)
-app.get('/api/manage-labels', authenticate, (req, res) => {
-  db.all(
-    'SELECT DISTINCT label FROM email_labels WHERE emailId IN (SELECT id FROM emails WHERE recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
-    [req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
-    (err, rows) => {
-      if (err) {
-        console.error('Manage labels error:', err);
-        return res.status(400).json({ error: 'Failed to fetch labels' });
+// Add or remove label
+app.post('/api/labels', authenticate, (req, res) => {
+  const { label, value } = req.body;
+  if (!label || value === undefined) {
+    return res.status(400).json({ error: 'label and value are required' });
+  }
+
+  const userId = req.user.id;
+  console.log(`POST /api/labels - userId: ${userId}, label: ${label}, value: ${value}`);
+
+  if (value) {
+    db.run(
+      'INSERT OR IGNORE INTO labels (userId, label) VALUES (?, ?)',
+      [userId, label],
+      function (err) {
+        if (err) {
+          console.error('Insert label error:', err);
+          return res.status(500).json({ error: 'Failed to add label', details: err.message });
+        }
+        db.get('SELECT label FROM labels WHERE id = ?', [this.lastID], (err, row) => {
+          if (err) {
+            console.error('Fetch label error:', err);
+            return res.status(500).json({ error: 'Failed to fetch label', details: err.message });
+          }
+          res.status(200).json({ success: true, message: 'Label added', label: row.label });
+        });
       }
-      res.json(rows.map(row => row.label));
-    }
-  );
+    );
+  } else {
+    db.run(
+      'DELETE FROM labels WHERE userId = ? AND label = ?',
+      [userId, label],
+      function (err) {
+        if (err) {
+          console.error('Delete label error:', err);
+          return res.status(500).json({ error: 'Failed to remove label', details: err.message });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'Label not found' });
+        }
+        res.status(200).json({ success: true, message: 'Label removed' });
+      }
+    );
+  }
 });
 
-// Endpoint to migrate labels (run once manually)
-app.post('/api/migrate-labels', authenticate, (req, res) => {
-  db.all('SELECT DISTINCT label FROM email_labels', [], (err, existingLabels) => {
-    if (err) {
-      console.error('Error fetching existing labels:', err);
-      return res.status(500).json({ error: 'Failed to fetch existing labels' });
-    }
+// Edit label
+app.put('/api/labels', authenticate, (req, res) => {
+  const { oldLabel, newLabel } = req.body;
+  if (!oldLabel || !newLabel) {
+    return res.status(400).json({ error: 'oldLabel and newLabel are required' });
+  }
 
-    let migrationCompleted = false;
-    existingLabels.forEach(labelRow => {
-      const label = labelRow.label;
-      db.get('SELECT id FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
-        if (err || !user) return;
+  const userId = req.user.id;
+  console.log(`PUT /api/labels - userId: ${userId}, oldLabel: ${oldLabel}, newLabel: ${newLabel}`);
+
+  db.serialize(() => {
+    db.get(
+      'SELECT id FROM labels WHERE userId = ? AND label = ?',
+      [userId, oldLabel],
+      (err, label) => {
+        if (err) {
+          console.error('Label fetch error:', err);
+          return res.status(500).json({ error: 'Server error', details: err.message });
+        }
+        if (!label) {
+          console.error('Label not found - userId:', userId, 'oldLabel:', oldLabel);
+          return res.status(404).json({ error: 'Label not found' });
+        }
+
+        const labelId = label.id;
 
         db.run(
-          'INSERT OR IGNORE INTO labels (userId, label) VALUES (?, ?)',
-          [user.id, label],
-          function(err) {
+          'UPDATE labels SET label = ? WHERE id = ? AND userId = ?',
+          [newLabel, labelId, userId],
+          function (err) {
             if (err) {
-              console.error('Error inserting label:', err);
-              return;
+              console.error('Update label error:', err);
+              return res.status(500).json({ error: 'Failed to update label', details: err.message });
             }
-            const labelId = this.lastID;
-            db.run(
-              'INSERT OR IGNORE INTO email_labels_new (emailId, labelId) SELECT emailId, ? FROM email_labels WHERE label = ?',
-              [labelId, label],
-              (err) => {
-                if (err) console.error('Error migrating email_labels:', err);
-                if (!migrationCompleted && existingLabels.indexOf(labelRow) === existingLabels.length - 1) {
-                  migrationCompleted = true;
-                  db.run('DROP TABLE IF EXISTS email_labels', (err) => {
-                    if (err) console.error('Error dropping old email_labels:', err);
-                    db.run('ALTER TABLE email_labels_new RENAME TO email_labels', (err) => {
-                      if (err) console.error('Error renaming email_labels_new:', err);
-                      res.status(200).json({ message: 'Labels migration completed' });
-                    });
-                  });
-                }
-              }
-            );
+            res.status(200).json({ success: true, message: 'Label updated', newLabel: newLabel });
           }
         );
-      });
-    });
-
-    if (existingLabels.length === 0) {
-      db.run('DROP TABLE IF EXISTS email_labels', (err) => {
-        if (err) console.error('Error dropping old email_labels:', err);
-        db.run('ALTER TABLE email_labels_new RENAME TO email_labels', (err) => {
-          if (err) console.error('Error renaming email_labels_new:', err);
-          res.status(200).json({ message: 'No labels to migrate, migration completed' });
-        });
-      });
-    }
+      }
+    );
   });
 });
 

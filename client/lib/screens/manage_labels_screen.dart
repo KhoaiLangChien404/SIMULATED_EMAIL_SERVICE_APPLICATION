@@ -16,6 +16,7 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
   bool _isLoading = true;
   final String _baseUrl = 'http://localhost:3000';
   final TextEditingController _labelController = TextEditingController();
+  final TextEditingController _editLabelController = TextEditingController();
 
   @override
   void initState() {
@@ -26,7 +27,7 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
   Future<void> _fetchLabels() async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/api/manage-labels'),
+        Uri.parse('$_baseUrl/api/labels'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
@@ -64,27 +65,32 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
       return;
     }
 
-    // Thêm nhãn bằng cách gán vào một email giả định (hoặc có thể tạo API mới để thêm trực tiếp vào bảng labels)
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/email-labels'),
+        Uri.parse('$_baseUrl/api/labels'),
         headers: {
           'Authorization': 'Bearer ${widget.token}',
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'emailId': -1, // Email giả định để tạo nhãn
           'label': newLabel,
           'value': true,
         }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        setState(() {
-          _labels.add(newLabel);
-          _labelController.clear();
-          _error = '';
-        });
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            _labels.add(data['label'] ?? newLabel); // Sử dụng label từ response hoặc newLabel nếu không có
+            _labelController.clear();
+            _error = '';
+          });
+        } else {
+          setState(() {
+            _error = 'Failed to add label: ${data['error'] ?? response.body}';
+          });
+        }
       } else {
         setState(() {
           _error = 'Failed to add label: ${response.body}';
@@ -99,15 +105,13 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
 
   Future<void> _deleteLabel(String label) async {
     try {
-      // Xóa nhãn khỏi email-labels trước
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/email-labels'),
+        Uri.parse('$_baseUrl/api/labels'),
         headers: {
           'Authorization': 'Bearer ${widget.token}',
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'emailId': -1, // Email giả định
           'label': label,
           'value': false,
         }),
@@ -130,9 +134,76 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
     }
   }
 
+  Future<void> _editLabel(String oldLabel) async {
+    _editLabelController.text = oldLabel;
+    final newLabel = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Label'),
+        content: TextField(
+          controller: _editLabelController,
+          decoration: const InputDecoration(
+            labelText: 'New Label Name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _editLabelController.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (newLabel == null || newLabel.isEmpty || newLabel == oldLabel) return;
+
+    try {
+      final response = await http.put(
+        Uri.parse('$_baseUrl/api/labels'),
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'oldLabel': oldLabel,
+          'newLabel': newLabel,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            final index = _labels.indexOf(oldLabel);
+            _labels[index] = data['newLabel'] ?? newLabel;
+            _error = '';
+          });
+        } else {
+          setState(() {
+            _error = 'Failed to edit label: ${data['error'] ?? response.body}';
+          });
+        }
+      } else {
+        setState(() {
+          _error = 'Failed to edit label: ${response.body}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Error editing label: $e';
+      });
+    }
+  }
+
   @override
   void dispose() {
     _labelController.dispose();
+    _editLabelController.dispose();
     super.dispose();
   }
 
@@ -141,6 +212,10 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Labels'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -179,9 +254,18 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
                         final label = _labels[index];
                         return ListTile(
                           title: Text(label),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete),
-                            onPressed: () => _deleteLabel(label),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () => _editLabel(label),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () => _deleteLabel(label),
+                              ),
+                            ],
                           ),
                         );
                       },

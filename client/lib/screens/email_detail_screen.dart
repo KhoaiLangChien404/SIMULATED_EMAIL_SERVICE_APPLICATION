@@ -28,7 +28,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
   final String _baseUrl = 'http://localhost:3000';
   Map<String, String?> _localFilePaths = {};
   Map<String, String?> _originalFileNames = {};
-  List<String> _availableLabels = []; // Danh sách nhãn từ server
+  List<String> _availableLabels = [];
 
   @override
   void initState() {
@@ -97,9 +97,16 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List<dynamic>;
-        setState(() {
-          _availableLabels = data.cast<String>();
-        });
+        if (mounted) {
+          setState(() {
+            _availableLabels = data.cast<String>();
+            // Cập nhật lại labels của email nếu nhãn đã thay đổi
+            if (_email != null) {
+              final currentLabels = List<String>.from(_email!['labels'] as List<dynamic>? ?? []);
+              _email!['labels'] = currentLabels.where((label) => _availableLabels.contains(label)).toList();
+            }
+          });
+        }
       } else {
         print('Failed to fetch labels: ${response.statusCode}, ${response.body}');
       }

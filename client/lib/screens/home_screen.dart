@@ -25,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentFolder = 'inbox';
   bool _isDetailedView = false;
   Map<int, bool> _hoverStates = {};
-  Set<String> _selectedLabels = {}; // Thay đổi từ String? thành Set<String>
+  Set<String> _selectedLabels = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final String _baseUrl = 'http://localhost:3000';
@@ -72,92 +72,92 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchEmails() async {
-  if (mounted) setState(() => {_emails = [], _drafts = [], _error = ''});
-  if (_currentFolder == 'draft') {
-    _fetchDrafts();
-    return;
-  }
-  try {
-    String queryParams = '';
-    if (_searchQuery.isNotEmpty) queryParams += '&search=${Uri.encodeQueryComponent(_searchQuery)}';
-    if (_fromMe) queryParams += '&fromMe=true';
-    if (_dateRange != null) {
-      queryParams += '&startDate=${Uri.encodeQueryComponent(_dateRange!.start.toIso8601String())}&endDate=${Uri.encodeQueryComponent(_dateRange!.end.toIso8601String())}';
+    if (mounted) setState(() => {_emails = [], _drafts = [], _error = ''});
+    if (_currentFolder == 'draft') {
+      _fetchDrafts();
+      return;
     }
-    if (_hasAttachments) queryParams += '&hasAttachments=true';
-    if (_selectedLabels.isNotEmpty) {
-      queryParams += '&labels=${Uri.encodeQueryComponent(_selectedLabels.join(','))}';
-    }
-
-    final uri = Uri.parse('$_baseUrl/api/emails?folder=$_currentFolder$queryParams');
-    print('Fetching emails with URL: $uri');
-    final response = await http.get(
-      uri,
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    ).timeout(const Duration(seconds: 10));
-    print('Emails response status: ${response.statusCode}');
-    print('Emails response body: ${response.body}');
-    if (response.statusCode == 200) {
-      final List<dynamic> fetchedEmails = jsonDecode(response.body);
-      if (mounted) {
-        setState(() {
-          _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
-          _emails = _emails.map((email) {
-            email['isRead'] = email['isRead'] == 1;
-            email['isStarred'] = email['isStarred'] == 1;
-            email['isTrashed'] = email['isTrashed'] == 1;
-            return email;
-          }).toList();
-          _drafts = [];
-          _error = _emails.isEmpty && _selectedLabels.isNotEmpty ? 'No emails found with selected labels' : '';
-          _hoverStates = {for (var email in _emails) email['id'] as int: false};
-        });
+    try {
+      String queryParams = '';
+      if (_searchQuery.isNotEmpty) queryParams += '&search=${Uri.encodeQueryComponent(_searchQuery)}';
+      if (_fromMe) queryParams += '&fromMe=true';
+      if (_dateRange != null) {
+        queryParams += '&startDate=${Uri.encodeQueryComponent(_dateRange!.start.toIso8601String())}&endDate=${Uri.encodeQueryComponent(_dateRange!.end.toIso8601String())}';
       }
-    } else {
-      if (mounted) setState(() => _error = 'Failed to fetch emails: ${response.body}');
+      if (_hasAttachments) queryParams += '&hasAttachments=true';
+      if (_selectedLabels.isNotEmpty) {
+        queryParams += '&labels=${Uri.encodeQueryComponent(_selectedLabels.join(','))}';
+      }
+
+      final uri = Uri.parse('$_baseUrl/api/emails?folder=$_currentFolder$queryParams');
+      print('Fetching emails with URL: $uri');
+      final response = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      print('Emails response status: ${response.statusCode}');
+      print('Emails response body: ${response.body}');
+      if (response.statusCode == 200) {
+        final List<dynamic> fetchedEmails = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
+            _emails = _emails.map((email) {
+              email['isRead'] = email['isRead'] == 1;
+              email['isStarred'] = email['isStarred'] == 1;
+              email['isTrashed'] = email['isTrashed'] == 1;
+              return email;
+            }).toList();
+            _drafts = [];
+            _error = _emails.isEmpty ? 'No emails found' : '';
+            _hoverStates = {for (var email in _emails) email['id'] as int: false};
+          });
+        }
+      } else {
+        if (mounted) setState(() => _error = 'Failed to fetch emails: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error fetching emails: $e');
     }
-  } catch (e) {
-    if (mounted) setState(() => _error = 'Error fetching emails: $e');
   }
-}
 
   Future<void> _fetchDrafts() async {
-  try {
-    String queryParams = '';
-    if (_searchQuery.isNotEmpty) queryParams += '?search=${Uri.encodeQueryComponent(_searchQuery)}';
-    if (_dateRange != null) {
-      queryParams += '${queryParams.isEmpty ? '?' : '&'}startDate=${Uri.encodeQueryComponent(_dateRange!.start.toIso8601String())}&endDate=${Uri.encodeQueryComponent(_dateRange!.end.toIso8601String())}';
-    }
-    if (_hasAttachments) queryParams += '${queryParams.isEmpty ? '?' : '&'}hasAttachments=true';
-    if (_selectedLabels.isNotEmpty) {
-      queryParams += '${queryParams.isEmpty ? '?' : '&'}labels=${Uri.encodeQueryComponent(_selectedLabels.join(','))}';
-    }
-
-    final uri = Uri.parse('$_baseUrl/api/drafts$queryParams');
-    print('Fetching drafts with URL: $uri');
-    final response = await http.get(
-      uri,
-      headers: {'Authorization': 'Bearer ${widget.token}'},
-    ).timeout(const Duration(seconds: 10));
-    print('Drafts response status: ${response.statusCode}');
-    print('Drafts response body: ${response.body}');
-    if (response.statusCode == 200) {
-      final List<dynamic> fetchedDrafts = jsonDecode(response.body);
-      if (mounted) {
-        setState(() {
-          _drafts = fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
-          _emails = [];
-          _error = _drafts.isEmpty && _selectedLabels.isNotEmpty ? 'No drafts found with selected labels' : '';
-          _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
-        });
+    try {
+      String queryParams = '';
+      if (_searchQuery.isNotEmpty) queryParams += '?search=${Uri.encodeQueryComponent(_searchQuery)}';
+      if (_dateRange != null) {
+        queryParams += '${queryParams.isEmpty ? '?' : '&'}startDate=${Uri.encodeQueryComponent(_dateRange!.start.toIso8601String())}&endDate=${Uri.encodeQueryComponent(_dateRange!.end.toIso8601String())}';
       }
-    } else {
-      if (mounted) setState(() => _error = 'Failed to fetch drafts: ${response.body}');
+      if (_hasAttachments) queryParams += '${queryParams.isEmpty ? '?' : '&'}hasAttachments=true';
+      if (_selectedLabels.isNotEmpty) {
+        queryParams += '${queryParams.isEmpty ? '?' : '&'}labels=${Uri.encodeQueryComponent(_selectedLabels.join(','))}';
+      }
+
+      final uri = Uri.parse('$_baseUrl/api/drafts$queryParams');
+      print('Fetching drafts with URL: $uri');
+      final response = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      print('Drafts response status: ${response.statusCode}');
+      print('Drafts response body: ${response.body}');
+      if (response.statusCode == 200) {
+        final List<dynamic> fetchedDrafts = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _drafts = fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
+            _emails = [];
+            _error = _drafts.isEmpty ? 'No drafts found' : '';
+            _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
+          });
+        }
+      } else {
+        if (mounted) setState(() => _error = 'Failed to fetch drafts: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error fetching drafts: $e');
     }
-  } catch (e) {
-    if (mounted) setState(() => _error = 'Error fetching drafts: $e');
   }
-}
 
   Future<void> _fetchProfile() async {
     try {
@@ -194,6 +194,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) {
           setState(() {
             _labels = data.cast<String>();
+            // Remove selected labels that no longer exist
+            _selectedLabels.removeWhere((label) => !_labels.contains(label));
           });
         }
       } else {
@@ -281,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _currentFolder = folder;
-        _selectedLabels.clear(); // Xóa tất cả label đã chọn khi chuyển folder
+        _selectedLabels.clear();
         _searchQuery = '';
         _searchController.clear();
         _emails = [];
@@ -384,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _hasAttachments = false;
       _searchQuery = '';
       _searchController.clear();
-      _selectedLabels.clear(); // Xóa tất cả label đã chọn khi reset
+      _selectedLabels.clear();
     });
     if (_currentFolder == 'draft') {
       _fetchDrafts();
