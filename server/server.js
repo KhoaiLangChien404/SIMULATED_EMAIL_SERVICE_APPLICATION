@@ -98,14 +98,14 @@ db.run(`
 `);
 
 db.run(`
-  CREATE TABLE IF NOT EXISTS email_labels (
+  CREATE TABLE email_labels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     emailId INTEGER,
     labelId INTEGER,
     FOREIGN KEY (emailId) REFERENCES emails(id),
     FOREIGN KEY (labelId) REFERENCES labels(id),
     UNIQUE(emailId, labelId)
-  )
+);
 `);
 
 const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
