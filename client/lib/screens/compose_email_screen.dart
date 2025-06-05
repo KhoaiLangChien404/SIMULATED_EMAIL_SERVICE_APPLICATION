@@ -296,14 +296,7 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
                       child: quill.QuillEditor(
                         focusNode: _focusNode,
                         scrollController: _scrollController,
-                        configurations: quill.QuillEditorConfigurations(
-                          controller: _bodyController,
-                          autoFocus: true,
-                          expands: true,
-                          padding: const EdgeInsets.all(10),
-                          placeholder: 'Compose your email...',
-                          scrollable: true,
-                        ),
+                        controller: _bodyController,
                       ),
                     ),
                     const SizedBox(height: 10),

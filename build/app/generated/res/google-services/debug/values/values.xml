@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gcm_defaultSenderId" translatable="false">308988723183</string>
+    <string name="google_api_key" translatable="false">AIzaSyAyCxl69nQa74p5u4F9OWSH3V26T_3UCgE</string>
+    <string name="google_app_id" translatable="false">1:308988723183:android:866fed9ac744a71123801a</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyAyCxl69nQa74p5u4F9OWSH3V26T_3UCgE</string>
+    <string name="google_storage_bucket" translatable="false">email-service-app-61c1b.firebasestorage.app</string>
+    <string name="project_id" translatable="false">email-service-app-61c1b</string>
+</resources>

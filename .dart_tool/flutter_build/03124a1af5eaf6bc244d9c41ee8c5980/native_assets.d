@@ -1,0 +1,1 @@
+ C:\\Users\\TRUNG\\OneDrive\\Documents\\TDTU\\2024-2025-ThirdYear\\hk2\\di_dong_da_nen_tang\\final\\522H0110_522H0141_522H0123\\simulated_email_service_application\\.dart_tool\\flutter_build\\03124a1af5eaf6bc244d9c41ee8c5980\\native_assets.yaml: 
