@@ -103,8 +103,7 @@ db.run(`
     subject TEXT,
     body TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    attachment TEXT,
-    isRead BOOLEAN DEFAULT 0
+    attachment TEXT
   )
 `);
 
@@ -119,7 +118,6 @@ db.run(`
   )
 `);
 
-// New table for email labels
 db.run(`
   CREATE TABLE IF NOT EXISTS email_labels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -328,69 +326,189 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
     res.status(500).json({ error: 'Server error' });
   }
 });
-
+// này là code cũ nha ae, mốt xóa cũng đc
 // Get Emails
+// app.get('/api/emails', authenticate, (req, res) => {
+//   const folder = req.query.folder || 'inbox';
+//   const search = (req.query.search || '').toLowerCase(); // Chuyển về chữ thường
+//   console.log('Emails query: folder=%s, search=%s', folder, search);
+//   let query = '';
+//   let params = [];
+
+//   switch (folder.toLowerCase()) {
+//     case 'inbox':
+//       query = `
+//         SELECT e.*, 
+//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
+//         FROM emails e 
+//         WHERE e.recipientPhone = ? 
+//           AND e.isTrashed = 0
+//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
+//         ORDER BY e.timestamp DESC`;
+//       params = [req.user.phone];
+//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+//       break;
+//     case 'starred':
+//       query = `
+//         SELECT e.*, 
+//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
+//         FROM emails e 
+//         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
+//           AND e.isStarred = 1 
+//           AND e.isTrashed = 0
+//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
+//         ORDER BY e.timestamp DESC`;
+//       params = [req.user.phone, req.user.phone, req.user.phone, req.user.phone];
+//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+//       break;
+//     case 'sent':
+//       query = `
+//         SELECT e.*, 
+//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
+//         FROM emails e 
+//         WHERE e.senderPhone = ?
+//           AND e.isTrashed = 0
+//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
+//         ORDER BY e.timestamp DESC`;
+//       params = [req.user.phone];
+//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+//       break;
+//     case 'trash':
+//       query = `
+//         SELECT e.*, 
+//                (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+//                (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+//                (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+//                (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
+//         FROM emails e 
+//         WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
+//           AND e.isTrashed = 1
+//           ${search ? 'AND (LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)' : ''}
+//         ORDER BY e.timestamp DESC`;
+//       params = [req.user.phone, req.user.phone, req.user.phone, req.user.phone];
+//       if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+//       break;
+//     default:
+//       return res.status(400).json({ error: 'Invalid folder' });
+//   }
+
+//   console.log('Emails SQL query:', query, params);
+//   db.all(query, params, (err, emails) => {
+//     if (err) {
+//       console.error('Database error:', err);
+//       return res.status(400).json({ error: 'Failed to fetch emails' });
+//     }
+//     const result = emails.map(email => {
+//       const attachments = [];
+//       if (email.attachmentPaths && email.attachmentTypes && email.attachmentNames) {
+//         const paths = email.attachmentPaths.split(',');
+//         const types = email.attachmentTypes.split(',');
+//         const names = email.attachmentNames.split(',');
+//         for (let i = 0; i < paths.length; i++) {
+//           attachments.push({
+//             filePath: paths[i],
+//             fileType: types[i],
+//             originalFileName: decodeURIComponent(names[i] || ''),
+//           });
+//         }
+//       }
+//       return {
+//         ...email,
+//         attachments,
+//         labels: email.labels ? email.labels.split(',') : [],
+//         attachmentPaths: undefined,
+//         attachmentTypes: undefined,
+//         attachmentNames: undefined,
+//         isRead: email.isRead === 1 || email.isRead === '1',
+//         isStarred: email.isStarred === 1 || email.isStarred === '1',
+//         isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
+//       };
+//     });
+//     console.log('Emails response:', result);
+//     res.json(result);
+//   });
+// });
+
 app.get('/api/emails', authenticate, (req, res) => {
   const folder = req.query.folder || 'inbox';
-  let query = '';
-  let params = [req.user.phone, req.user.phone, req.user.phone, req.user.phone];
+  const search = (req.query.search || '').toLowerCase();
+  const fromMe = req.query.fromMe === 'true';
+  const startDate = req.query.startDate;
+  const endDate = req.query.endDate;
+  const hasAttachments = req.query.hasAttachments === 'true';
 
+  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s', 
+    folder, search, fromMe, startDate, endDate, hasAttachments);
+
+  let query = '';
+  let params = [];
+  let conditions = [];
+
+  // Base query based on folder
   switch (folder.toLowerCase()) {
     case 'inbox':
-      query = `
-        SELECT e.*, 
-               (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-               (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-        FROM emails e 
-        WHERE e.recipientPhone = ? 
-          AND e.isTrashed = 0 
-        ORDER BY e.timestamp DESC`;
-      params = [req.user.phone];
+      conditions.push('e.recipientPhone = ? AND e.isTrashed = 0');
+      params.push(req.user.phone);
       break;
     case 'starred':
-      query = `
-        SELECT e.*, 
-               (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-               (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-        FROM emails e 
-        WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
-          AND e.isStarred = 1 
-          AND e.isTrashed = 0 
-        ORDER BY e.timestamp DESC`;
+      conditions.push('(e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE ? OR e.bcc LIKE ?) AND e.isStarred = 1 AND e.isTrashed = 0');
+      params.push(req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`);
       break;
     case 'sent':
-      query = `
-        SELECT e.*, 
-               (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-               (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-        FROM emails e 
-        WHERE e.senderPhone = ? 
-          AND e.isTrashed = 0 
-        ORDER BY e.timestamp DESC`;
-      params = [req.user.phone];
+      conditions.push('e.senderPhone = ? AND e.isTrashed = 0');
+      params.push(req.user.phone);
       break;
     case 'trash':
-      query = `
-        SELECT e.*, 
-               (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
-               (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
-               (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-               (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
-        FROM emails e 
-        WHERE (e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE '%' || ? || '%' OR e.bcc LIKE '%' || ? || '%') 
-          AND e.isTrashed = 1 
-        ORDER BY e.timestamp DESC`;
+      conditions.push('(e.recipientPhone = ? OR e.senderPhone = ? OR e.cc LIKE ? OR e.bcc LIKE ?) AND e.isTrashed = 1');
+      params.push(req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`);
       break;
     default:
       return res.status(400).json({ error: 'Invalid folder' });
   }
 
+  // Add search condition
+  if (search) {
+    conditions.push('(LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  // Add "From me" condition
+  if (fromMe) {
+    conditions.push('e.senderPhone = ?');
+    params.push(req.user.phone);
+  }
+
+  // Add date range condition
+  if (startDate && endDate) {
+    conditions.push('e.timestamp BETWEEN ? AND ?');
+    params.push(startDate, endDate);
+  }
+
+  // Add hasAttachments condition
+  if (hasAttachments) {
+    conditions.push('EXISTS (SELECT 1 FROM attachments a WHERE a.emailId = e.id)');
+  }
+
+  query = `
+    SELECT e.*, 
+           (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
+           (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
+           (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
+           (SELECT GROUP_CONCAT(el.label) FROM email_labels el WHERE el.emailId = e.id) as labels
+    FROM emails e 
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY e.timestamp DESC`;
+
+  console.log('Emails SQL query:', query, params);
   db.all(query, params, (err, emails) => {
     if (err) {
       console.error('Database error:', err);
@@ -422,6 +540,7 @@ app.get('/api/emails', authenticate, (req, res) => {
         isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
       };
     });
+    console.log('Emails response:', result);
     res.json(result);
   });
 });
@@ -460,7 +579,6 @@ app.post('/api/email-labels', authenticate, (req, res) => {
     return res.status(400).json({ error: 'emailId, label, and value are required' });
   }
 
-  // Validate email exists and user has access
   db.get(
     'SELECT id FROM emails WHERE id = ? AND (recipientPhone = ? OR senderPhone = ? OR cc LIKE ? OR bcc LIKE ?)',
     [emailId, req.user.phone, req.user.phone, `%${req.user.phone}%`, `%${req.user.phone}%`],
@@ -470,7 +588,6 @@ app.post('/api/email-labels', authenticate, (req, res) => {
       }
 
       if (value) {
-        // Add label if it doesn't exist
         db.run(
           'INSERT OR IGNORE INTO email_labels (emailId, label) VALUES (?, ?)',
           [emailId, label],
@@ -483,7 +600,6 @@ app.post('/api/email-labels', authenticate, (req, res) => {
           }
         );
       } else {
-        // Remove label if it exists
         db.run(
           'DELETE FROM email_labels WHERE emailId = ? AND label = ?',
           [emailId, label],
@@ -526,18 +642,22 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
       JSON.parse(cleanedBody);
     } catch (e) {
       console.error('Invalid JSON in body from client, using default:', e);
-      cleanedBody = JSON.stringify([{ insert: cleanedBody }]); // Chuyển text plain thành JSON Delta đơn giản
+      cleanedBody = JSON.stringify([{ insert: body }]);
     }
 
     db.run(
-      'INSERT INTO drafts (senderPhone, recipientPhone, cc, bcc, subject, body, attachment, isRead) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.user.phone, recipientPhone || '', cc || '', bcc || '', subject || '', cleanedBody, attachment, 0],
+      'INSERT INTO drafts (senderPhone, recipientPhone, cc, bcc, subject, body, attachment) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [req.user.phone, recipientPhone || '', cc || '', bcc || '', subject || '', cleanedBody, attachment],
       function (err) {
         if (err) {
           console.error('Database error saving draft:', err);
           return res.status(400).json({ error: 'Failed to save draft' });
         }
-        res.json({ message: 'Draft saved', draftId: this.lastID, attachmentName: attachmentName ? decodeURIComponent(attachmentName) : null });
+        res.json({ 
+          message: 'Draft saved', 
+          draftId: this.lastID, 
+          attachmentName: attachmentName ? decodeURIComponent(attachmentName) : null 
+        });
       }
     );
   } catch (e) {
@@ -547,34 +667,84 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
 });
 
 // Get Drafts
+// Get Drafts
+// app.get('/api/drafts', authenticate, (req, res) => {
+//   const search = (req.query.search || '').toLowerCase();
+//   console.log('Drafts query: search=%s', search);
+//   let query = `
+//     SELECT * FROM drafts 
+//     WHERE senderPhone = ?
+//       ${search ? 'AND (LOWER(subject) LIKE ? OR LOWER(recipientPhone) LIKE ? OR LOWER(body) LIKE ?)' : ''}
+//     ORDER BY timestamp DESC
+//   `;
+//   let params = [req.user.phone];
+//   if (search) params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+//   console.log('Drafts SQL query:', query, params);
+//   db.all(query, params, (err, drafts) => {
+//     if (err) {
+//       console.error('Database error:', err);
+//       return res.status(400).json({ error: 'Failed to fetch drafts' });
+//     }
+//     const result = drafts.map(draft => ({
+//       ...draft,
+//     }));
+//     console.log('Drafts response:', result);
+//     res.json(result);
+//   });
+// });
+
 app.get('/api/drafts', authenticate, (req, res) => {
-  db.all('SELECT * FROM drafts WHERE senderPhone = ? ORDER BY timestamp DESC', [req.user.phone], (err, drafts) => {
-    if (err) return res.status(400).json({ error: 'Failed to fetch drafts' });
-    res.json(drafts);
+  const search = (req.query.search || '').toLowerCase();
+  const startDate = req.query.startDate;
+  const endDate = req.query.endDate;
+  const hasAttachments = req.query.hasAttachments === 'true';
+
+  console.log('Drafts query: search=%s, startDate=%s, endDate=%s, hasAttachments=%s', 
+    search, startDate, endDate, hasAttachments);
+
+  let conditions = ['senderPhone = ?'];
+  let params = [req.user.phone];
+
+  // Add search condition
+  if (search) {
+    conditions.push('(LOWER(subject) LIKE ? OR LOWER(recipientPhone) LIKE ? OR LOWER(body) LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  // Add date range condition
+  if (startDate && endDate) {
+    conditions.push('timestamp BETWEEN ? AND ?');
+    params.push(startDate, endDate);
+  }
+
+  // Add hasAttachments condition
+  if (hasAttachments) {
+    conditions.push('attachment IS NOT NULL AND attachment != ""');
+  }
+
+  let query = `
+    SELECT * FROM drafts 
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY timestamp DESC
+  `;
+
+  console.log('Drafts SQL query:', query, params);
+  db.all(query, params, (err, drafts) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(400).json({ error: 'Failed to fetch drafts' });
+    }
+    const result = drafts.map(draft => ({
+      ...draft,
+    }));
+    console.log('Drafts response:', result);
+    res.json(result);
   });
 });
 
-// Update Draft Action
+// Update Draft Action (Loại bỏ vì drafts không có cột isRead)
 app.post('/api/update-draft-action', authenticate, (req, res) => {
-  const { draftId, action, value } = req.body;
-  if (!draftId || !action) return res.status(400).json({ error: 'Draft ID and action are required' });
-  if (action !== 'read') return res.status(400).json({ error: 'Invalid action for draft' });
-
-  db.run(
-    'UPDATE drafts SET isRead = ? WHERE id = ? AND senderPhone = ?',
-    [value ? 1 : 0, draftId, req.user.phone],
-    function (err) {
-      if (err) {
-        console.error('Database update error:', err);
-        return res.status(400).json({ error: `Failed to update draft action: ${err.message}` });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Draft not found or unauthorized' });
-      }
-      console.log(`Updated draft ${draftId} with isRead to ${value}`);
-      res.json({ message: 'Draft action updated' });
-    }
-  );
+  return res.status(400).json({ error: 'Drafts do not support actions like read' });
 });
 
 // Delete Draft
