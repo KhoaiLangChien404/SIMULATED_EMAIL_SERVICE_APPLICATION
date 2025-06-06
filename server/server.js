@@ -345,7 +345,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
         return res.status(400).json({ error: 'Recipient phone number not found' });
       }
 
-      // Lưu email vào database
+      // Use body as plain text directly
       db.run(
         'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
         [req.user.phone, recipientPhone, cc || '', bcc || '', subject, body],
@@ -356,7 +356,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
           }
           const emailId = this.lastID;
 
-          // Lưu tệp đính kèm nếu có
+          // Save attachments if any
           if (attachments.length > 0) {
             const attachmentData = attachments.map(file => ({
               emailId,
@@ -376,21 +376,16 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
             );
           }
 
-          // Kiểm tra Auto Answer Mode của người nhận
+          // Check recipient's Auto Answer Mode
           if (recipient.autoAnswerEnabled && recipient.autoAnswerMessage) {
             console.log(`Auto answering for recipient ${recipientPhone} with message: ${recipient.autoAnswerMessage}`);
             db.run(
               'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
-              [
-                recipientPhone,
-                req.user.phone,
-                `Re: ${subject}`,
-                recipient.autoAnswerMessage
-              ],
+              [recipientPhone, req.user.phone, `Re: ${subject}`, recipient.autoAnswerMessage],
               (err) => {
                 if (err) {
                   console.error('Auto answer email insertion error:', err);
-                  // Không trả lỗi cho client vì email gốc đã gửi thành công
+                  // Do not return error to client as original email was sent successfully
                 }
               }
             );
@@ -417,7 +412,7 @@ app.get('/api/emails', authenticate, (req, res) => {
   const labels = req.query.labels ? req.query.labels.split(',') : [];
   const userId = req.user.id;
 
-  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s, userId=%s', 
+  console.log('Emails query: folder=%s, search=%s, fromMe=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s, userId=%s',
     folder, search, fromMe, startDate, endDate, hasAttachments, labels, userId);
 
   let query = '';
@@ -472,12 +467,12 @@ app.get('/api/emails', authenticate, (req, res) => {
   // Add labels condition
   const executeQuery = () => {
     query = `
-      SELECT e.*, 
+      SELECT e.*,
              (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
              (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
              (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
              (SELECT GROUP_CONCAT(l.label) FROM email_labels el JOIN labels l ON el.labelId = l.id WHERE el.emailId = e.id) as labels
-      FROM emails e 
+      FROM emails e
       WHERE ${conditions.length ? conditions.join(' AND ') : '1=1'}
       ORDER BY e.timestamp DESC`;
 
@@ -530,8 +525,8 @@ app.get('/api/emails', authenticate, (req, res) => {
       }
       const labelIds = labelRows.map(row => row.id);
       conditions.push(`e.id IN (
-        SELECT el.emailId 
-        FROM email_labels el 
+        SELECT el.emailId
+        FROM email_labels el
         WHERE el.labelId IN (${labelIds.map(() => '?').join(',')})
       )`);
       params.push(...labelIds);
@@ -674,13 +669,8 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
     return res.status(400).json({ error: 'At least one field is required for a draft' });
   }
   try {
-    let cleanedBody = body || '{}';
-    try {
-      JSON.parse(cleanedBody);
-    } catch (e) {
-      console.error('Invalid JSON in body from client, using default:', e);
-      cleanedBody = JSON.stringify([{ insert: body }]);
-    }
+    // Use body as plain text directly, no JSON parsing
+    const cleanedBody = body || '';
 
     db.run(
       'INSERT INTO drafts (senderPhone, recipientPhone, cc, bcc, subject, body, attachment) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -690,10 +680,10 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
           console.error('Database error saving draft:', err);
           return res.status(400).json({ error: 'Failed to save draft' });
         }
-        res.json({ 
-          message: 'Draft saved', 
-          draftId: this.lastID, 
-          attachmentName: attachmentName ? decodeURIComponent(attachmentName) : null 
+        res.json({
+          message: 'Draft saved',
+          draftId: this.lastID,
+          attachmentName: attachmentName ? decodeURIComponent(attachmentName) : null
         });
       }
     );
@@ -711,7 +701,7 @@ app.get('/api/drafts', authenticate, (req, res) => {
   const hasAttachments = req.query.hasAttachments === 'true';
   const labels = req.query.labels ? req.query.labels.split(',') : [];
 
-  console.log('Drafts query: search=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s', 
+  console.log('Drafts query: search=%s, startDate=%s, endDate=%s, hasAttachments=%s, labels=%s',
     search, startDate, endDate, hasAttachments, labels);
 
   let conditions = ['senderPhone = ?'];
@@ -734,13 +724,13 @@ app.get('/api/drafts', authenticate, (req, res) => {
     conditions.push('attachment IS NOT NULL AND attachment != ""');
   }
 
-  // Add labels condition (drafts không hỗ trợ nhãn trực tiếp)
+  // Add labels condition (drafts do not support labels directly)
   if (labels.length > 0) {
-    // Bỏ qua vì drafts chưa hỗ trợ nhãn
+    // Skip as drafts do not support labels
   }
 
   let query = `
-    SELECT * FROM drafts 
+    SELECT * FROM drafts
     WHERE ${conditions.join(' AND ')}
     ORDER BY timestamp DESC
   `;
@@ -830,8 +820,7 @@ app.post('/api/email-actions', authenticate, (req, res) => {
         }
         res.status(200).json({ success: true });
       });
-    }
-  );
+  });
 });
 
 // Get Available Labels
@@ -850,7 +839,7 @@ app.get('/api/labels', authenticate, (req, res) => {
   );
 });
 
-// Add or remove label
+// Add or Remove Label
 app.post('/api/labels', authenticate, (req, res) => {
   const { label, value } = req.body;
   if (!label || value === undefined) {
@@ -874,7 +863,7 @@ app.post('/api/labels', authenticate, (req, res) => {
             console.error('Fetch label error:', err);
             return res.status(500).json({ error: 'Failed to fetch label', details: err.message });
           }
-          res.status(200).json({ success: true, message: 'Label added', label: row.label });
+          res.status(200).json({ success: true, message: 'Label added successfully', label: row.label });
         });
       }
     );
@@ -890,16 +879,16 @@ app.post('/api/labels', authenticate, (req, res) => {
         if (this.changes === 0) {
           return res.status(404).json({ error: 'Label not found' });
         }
-        res.status(200).json({ success: true, message: 'Label removed' });
+        res.json({ success: true, message: 'Label removed successfully' });
       }
     );
   }
 });
 
-// Edit label
+// Edit Label
 app.put('/api/labels', authenticate, (req, res) => {
-  const { oldLabel, newLabel } = req.body;
-  if (!oldLabel || !newLabel) {
+  const { oldLabel, newLabelnewLabel } = req.body;
+  if (!oldLabeloldLabel || !newLabelnewLabel) {
     return res.status(400).json({ error: 'oldLabel and newLabel are required' });
   }
 
@@ -930,7 +919,7 @@ app.put('/api/labels', authenticate, (req, res) => {
               console.error('Update label error:', err);
               return res.status(500).json({ error: 'Failed to update label', details: err.message });
             }
-            res.status(200).json({ success: true, message: 'Label updated', newLabel: newLabel });
+            res.json({ success: true, message: 'Label updated successfully', newLabel: newLabel });
           }
         );
       }

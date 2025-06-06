@@ -100,7 +100,6 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
         if (mounted) {
           setState(() {
             _availableLabels = data.cast<String>();
-            // Cập nhật lại labels của email nếu nhãn đã thay đổi
             if (_email != null) {
               final currentLabels = List<String>.from(_email!['labels'] as List<dynamic>? ?? []);
               _email!['labels'] = currentLabels.where((label) => _availableLabels.contains(label)).toList();
@@ -390,6 +389,18 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
 
     final List<dynamic> currentLabels = (_email!['labels'] as List<dynamic>?) ?? [];
 
+    // Extract plain text from body, removing JSON-like structures if present
+    String displayBody = _email!['body'] as String? ?? '';
+    try {
+      final decoded = jsonDecode(displayBody);
+      if (decoded is List && decoded.isNotEmpty && decoded[0].containsKey('insert')) {
+        displayBody = decoded[0]['insert'] as String? ?? '';
+      }
+    } catch (e) {
+      // If not JSON, use raw body
+      displayBody = _email!['body'] as String? ?? '';
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Padding(
@@ -541,7 +552,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
               'Body:',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            Text(_email!['body'] as String? ?? ''),
+            Text(displayBody),
             if (_email!['attachments'] != null && (_email!['attachments'] as List).isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

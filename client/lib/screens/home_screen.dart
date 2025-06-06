@@ -43,6 +43,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _hasAttachments = false;
   bool _showAdvancedSearch = false;
 
+  // Track read status locally to prevent overwriting
+  Map<int, bool> _emailReadStatus = {};
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchEmails() async {
-    if (mounted) setState(() => {_emails = [], _drafts = [], _error = ''});
+    if (mounted) setState(() => _emails = []);
     if (_currentFolder == 'draft') {
       _fetchDrafts();
       return;
@@ -109,9 +112,12 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
             _emails = _emails.map((email) {
-              email['isRead'] = email['isRead'] == 1;
-              email['isStarred'] = email['isStarred'] == 1;
-              email['isTrashed'] = email['isTrashed'] == 1;
+              final emailId = email['id'] as int;
+              email['isRead'] = _emailReadStatus.containsKey(emailId)
+                  ? _emailReadStatus[emailId]!
+                  : (email['isRead'] == 1 || email['isRead'] == true);
+              email['isStarred'] = email['isStarred'] == 1 || email['isStarred'] == true;
+              email['isTrashed'] = email['isTrashed'] == 1 || email['isTrashed'] == true;
               return email;
             }).toList();
             _drafts = [];
@@ -231,9 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      final url = _currentFolder == 'draft'
-          ? '$_baseUrl/api/update-draft-action'
-          : '$_baseUrl/api/email-actions';
+      final url = _currentFolder == 'draft' ? '$_baseUrl/api/update-draft-action' : '$_baseUrl/api/email-actions';
       final response = await http.post(
         Uri.parse(url),
         headers: {
@@ -264,6 +268,37 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _updateEmailReadStatus(int emailId, bool isRead) async {
+    if (mounted) {
+      setState(() {
+        _emailReadStatus[emailId] = isRead;
+        final emailIndex = _emails.indexWhere((email) => email['id'] == emailId);
+        if (emailIndex != -1) {
+          _emails[emailIndex]['isRead'] = isRead;
+        }
+      });
+    }
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/email-actions'),
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'emailId': emailId,
+          'action': 'read',
+          'value': isRead,
+        }),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        print('Failed to sync read status with server: ${response.body}');
+      }
+    } catch (e) {
+      print('Error syncing read status: $e');
+    }
+  }
+
   Future<void> _goToProfile() async {
     final result = await Navigator.push(
       context,
@@ -277,17 +312,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
         _defaultFontSize = result['defaultFontSize'] ?? 12;
         _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial';
-      });
-    }
-  }
-
-  void _updateEmailReadStatus(int emailId, bool isRead) {
-    if (mounted) {
-      setState(() {
-        final emailIndex = _emails.indexWhere((email) => email['id'] == emailId);
-        if (emailIndex != -1) {
-          _emails[emailIndex]['isRead'] = isRead;
-        }
       });
     }
   }
@@ -341,10 +365,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _getEmailPreview(String body) {
-    if (body.length > 50) {
-      return '${body.substring(0, 50)}...';
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is List && decoded.isNotEmpty && decoded[0].containsKey('insert')) {
+        return (decoded[0]['insert'] as String).length > 50
+            ? '${(decoded[0]['insert'] as String).substring(0, 50)}...'
+            : decoded[0]['insert'] as String;
+      }
+    } catch (e) {
+      return body.length > 50 ? '${body.substring(0, 50)}...' : body;
     }
-    return body;
+    return body.length > 50 ? '${body.substring(0, 50)}...' : body;
   }
 
   Future<void> _navigateToCompose() async {
@@ -502,14 +533,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Email Folders', style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 24)),
+                    Text(
+                      'Email Folders',
+                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 24),
+                    ),
                     const Spacer(),
                     Text(
-                      'Auto Answer: ${_autoAnswerEnabled ? "On" : "Off"}',
+                      'Auto Answer: ${_autoAnswerEnabled ? 'On' : 'Off'}',
                       style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 16),
                     ),
                     Text(
-                      'Current Time: 11:33 PM +07, Friday, June 06, 2025',
+                      'Current Time: 01:54 AM +07, Saturday, June 07, 2025',
                       style: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.white70, fontSize: 12),
                     ),
                   ],
@@ -578,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.manage_search),
-                title: const Text('Quản lý nhãn'),
+                title: const Text('Manage labels'),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -608,7 +642,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     if (_currentFolder != 'draft')
                       CheckboxListTile(
-                        title: Text('From me', style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black)),
+                        title: Text(
+                          'From me',
+                          style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
+                        ),
                         value: _fromMe,
                         onChanged: (value) {
                           setState(() {
@@ -620,7 +657,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ListTile(
                       title: const Text('Date range'),
                       subtitle: _dateRange != null
-                          ? Text('${_dateRange!.start.toString().split(' ')[0]} - ${_dateRange!.end.toString().split(' ')[0]}')
+                          ? Text(
+                              '${_dateRange!.start.toString().split(' ')[0]} - ${_dateRange!.end.toString().split(' ')[0]}',
+                            )
                           : const Text('Select date range'),
                       trailing: IconButton(
                         icon: const Icon(Icons.calendar_today),
@@ -628,7 +667,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     CheckboxListTile(
-                      title: const Text('Has attachments'),
+                      title: Text(
+                        'Has attachments',
+                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
+                      ),
                       value: _hasAttachments,
                       onChanged: (value) {
                         setState(() {
@@ -649,10 +691,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             Expanded(
-              child: (_error.isNotEmpty)
-                  ? Center(child: Text(_error, style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red)))
+              child: _error.isNotEmpty
+                  ? Center(
+                      child: Text(
+                        _error,
+                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red),
+                      ),
+                    )
                   : (_searchQuery.isNotEmpty && (_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft'))
-                      ? Center(child: Text('Not found'))
+                      ? const Center(child: Text('Not found'))
                       : (_emails.isEmpty && _drafts.isEmpty)
                           ? const Center(child: CircularProgressIndicator())
                           : ListView.builder(
@@ -661,8 +708,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 final item = _currentFolder == 'draft' ? _drafts[index] : _emails[index];
                                 final isRead = _currentFolder != 'draft' ? item['isRead'] as bool : false;
                                 final isStarred = _currentFolder != 'draft' ? item['isStarred'] as bool : false;
-                                final hasAttachments = _currentFolder != 'draft' && item['attachments'] != null && (item['attachments'] as List).isNotEmpty;
-                                final hasDraftAttachment = _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
+                                final hasAttachments =
+                                    _currentFolder != 'draft' && item['attachments'] != null && (item['attachments'] as List).isNotEmpty;
+                                final hasDraftAttachment =
+                                    _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
                                 final itemId = item['id'] as int;
                                 final isHovering = _hoverStates[itemId] ?? false;
 
@@ -701,11 +750,13 @@ class _HomeScreenState extends State<HomeScreen> {
                                             ),
                                           ),
                                         );
-                                        if (result != null && result is Map<String, dynamic>) {
+                                        if (result != null && result is Map<String, dynamic> && mounted) {
                                           final updatedIsRead = result['isRead'] as bool?;
                                           final updatedIsStarred = result['isStarred'] as bool?;
-                                          if (updatedIsRead != null) _updateEmailReadStatus(item['id'], updatedIsRead);
-                                          if (updatedIsStarred != null && mounted) {
+                                          if (updatedIsRead != null) {
+                                            _updateEmailReadStatus(item['id'], updatedIsRead);
+                                          }
+                                          if (updatedIsStarred != null) {
                                             setState(() {
                                               final emailIndex = _emails.indexWhere((e) => e['id'] == item['id']);
                                               if (emailIndex != -1) _emails[emailIndex]['isStarred'] = updatedIsStarred;
@@ -715,7 +766,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       }
                                     },
                                     child: Container(
-                                      color: _currentFolder == 'draft' ? Colors.grey[100] : (isRead ? Colors.grey[200] : Colors.grey[50]),
+                                      color: _currentFolder == 'draft'
+                                          ? Colors.grey[100]
+                                          : (isRead ? Colors.grey[200] : Colors.grey[50]),
                                       child: ListTile(
                                         leading: Tooltip(
                                           message: isStarred ? 'starred' : 'not starred',
@@ -751,7 +804,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                         title: Text(
                                           item['subject'] ?? 'No Subject',
                                           style: TextStyle(
-                                            fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
+                                            fontWeight: _currentFolder == 'draft'
+                                                ? FontWeight.normal
+                                                : (isRead ? FontWeight.normal : FontWeight.bold),
                                           ),
                                         ),
                                         subtitle: _isDetailedView
@@ -763,7 +818,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                                         ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
                                                         : 'From: ${item['senderPhone']}',
                                                     style: TextStyle(
-                                                      fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
+                                                      fontWeight: _currentFolder == 'draft'
+                                                          ? FontWeight.normal
+                                                          : (isRead ? FontWeight.normal : FontWeight.bold),
                                                     ),
                                                   ),
                                                   Text(
@@ -775,7 +832,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                                       children: [
                                                         const Icon(Icons.attach_file, size: 16, color: Colors.grey),
                                                         const SizedBox(width: 4),
-                                                        Text('Attachment', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                                        Text(
+                                                          'Attachment',
+                                                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                                        ),
                                                       ],
                                                     ),
                                                 ],
@@ -785,7 +845,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
                                                     : 'From: ${item['senderPhone']}',
                                                 style: TextStyle(
-                                                  fontWeight: _currentFolder == 'draft' ? FontWeight.normal : (isRead ? FontWeight.normal : FontWeight.bold),
+                                                  fontWeight: _currentFolder == 'draft'
+                                                      ? FontWeight.normal
+                                                      : (isRead ? FontWeight.normal : FontWeight.bold),
                                                 ),
                                               ),
                                         trailing: isHovering
@@ -802,12 +864,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                       onPressed: _currentFolder != 'draft'
                                                           ? () {
                                                               final newReadStatus = !isRead;
-                                                              if (mounted) {
-                                                                setState(() {
-                                                                  _emails[index]['isRead'] = newReadStatus;
-                                                                });
-                                                              }
-                                                              _updateAction(itemId, 'read', newReadStatus);
+                                                              _updateEmailReadStatus(itemId, newReadStatus);
                                                             }
                                                           : null,
                                                       splashRadius: 20,
