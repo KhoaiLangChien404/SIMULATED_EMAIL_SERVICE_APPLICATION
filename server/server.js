@@ -98,7 +98,7 @@ db.run(`
 `);
 
 db.run(`
-  CREATE TABLE email_labels (
+  CREATE TABLE IF NOT EXISTS email_labels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     emailId INTEGER,
     labelId INTEGER,
@@ -383,39 +383,23 @@ app.get('/api/emails', authenticate, (req, res) => {
     conditions.push('EXISTS (SELECT 1 FROM attachments a WHERE a.emailId = e.id)');
   }
 
-  function executeQuery(labelIds = []) {
-    if (labelIds.length > 0) {
-      conditions.push(`e.id IN (
-        SELECT el.emailId 
-        FROM email_labels el 
-        WHERE el.labelId IN (${labelIds.map(() => '?').join(',')})
-      )`);
-      params.push(...labelIds);
-    }
-
-    if (conditions.length === 0) {
-      conditions.push('1=1'); // Fallback condition to avoid empty WHERE clause
-    }
-
+  // Add labels condition
+  const executeQuery = () => {
     query = `
       SELECT e.*, 
              (SELECT GROUP_CONCAT(a.filePath) FROM attachments a WHERE a.emailId = e.id) as attachmentPaths,
              (SELECT GROUP_CONCAT(a.fileType) FROM attachments a WHERE a.emailId = e.id) as attachmentTypes,
              (SELECT GROUP_CONCAT(a.originalFileName) FROM attachments a WHERE a.emailId = e.id) as attachmentNames,
-             (SELECT GROUP_CONCAT(l.label) FROM email_labels el JOIN labels l ON el.labelId = l.id WHERE el.emailId = e.id AND l.userId = ?) as labels
+             (SELECT GROUP_CONCAT(l.label) FROM email_labels el JOIN labels l ON el.labelId = l.id WHERE el.emailId = e.id) as labels
       FROM emails e 
-      WHERE ${conditions.join(' AND ')}
+      WHERE ${conditions.length ? conditions.join(' AND ') : '1=1'}
       ORDER BY e.timestamp DESC`;
 
-    params.push(userId); // Add userId for labels query
-
-    console.log('Emails SQL query:', query);
-    console.log('Query params:', params);
-
+    console.log('Emails SQL query:', query, params);
     db.all(query, params, (err, emails) => {
       if (err) {
-        console.error('Emails query error:', err);
-        return res.status(500).json({ error: 'Server error while fetching emails', details: err.message });
+        console.error('Database error:', err);
+        return res.status(400).json({ error: 'Failed to fetch emails', sqlError: err.message });
       }
       const result = emails.map(email => {
         const attachments = [];
@@ -446,20 +430,26 @@ app.get('/api/emails', authenticate, (req, res) => {
       console.log('Emails response:', result);
       res.json(result);
     });
-  }
+  };
 
   if (labels.length > 0) {
-    db.all('SELECT id FROM labels WHERE userId = ? AND label IN (' + labels.map(() => '?').join(',') + ')', [userId, ...labels], (err, labelRows) => {
+    db.all('SELECT id, label FROM labels WHERE userId = ? AND label IN (' + labels.map(() => '?').join(',') + ')', [userId, ...labels], (err, labelRows) => {
       if (err) {
         console.error('Error checking labels:', err);
-        return res.status(500).json({ error: 'Server error while fetching labels', details: err.message });
+        return res.status(400).json({ error: 'Failed to fetch emails', sqlError: err.message });
+      }
+      if (labelRows.length !== labels.length) {
+        console.log('Some labels not found for userId', userId, ':', labels, 'Found:', labelRows);
+        return res.status(400).json({ error: 'One or more labels not found', missingLabels: labels.filter(l => !labelRows.some(r => r.label === l)) });
       }
       const labelIds = labelRows.map(row => row.id);
-      if (labelIds.length === 0) {
-        console.log('No valid labels found for userId', userId, ':', labels);
-        return res.status(200).json([]); // Return empty array if no labels match
-      }
-      executeQuery(labelIds);
+      conditions.push(`e.id IN (
+        SELECT el.emailId 
+        FROM email_labels el 
+        WHERE el.labelId IN (${labelIds.map(() => '?').join(',')})
+      )`);
+      params.push(...labelIds);
+      executeQuery();
     });
   } else {
     executeQuery();
