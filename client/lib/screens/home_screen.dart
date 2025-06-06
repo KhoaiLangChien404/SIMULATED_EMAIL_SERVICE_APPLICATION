@@ -32,6 +32,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> _labels = [];
   bool _autoAnswerEnabled = false;
   String _autoAnswerMessage = '';
+  int _defaultFontSize = 12; // Thêm biến font size
+  String _defaultFontFamily = 'Arial'; // Thêm biến font family
 
   // Advanced Search Filters
   bool _fromMe = false;
@@ -175,6 +177,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _profilePicUrl = data['profilePic'];
             _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
             _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
+            _defaultFontSize = data['defaultFontSize'] ?? 12; // Cập nhật font size
+            _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial'; // Cập nhật font family
           });
         }
       } else {
@@ -270,6 +274,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _profilePicUrl = result['profilePic'] ?? _profilePicUrl;
         _autoAnswerEnabled = result['autoAnswerEnabled'] ?? _autoAnswerEnabled;
         _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
+        _defaultFontSize = result['defaultFontSize'] ?? 12; // Cập nhật font size
+        _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial'; // Cập nhật font family
       });
     }
   }
@@ -343,7 +349,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _navigateToCompose() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => ComposeEmailScreen(token: widget.token)),
+      MaterialPageRoute(
+        builder: (context) => ComposeEmailScreen(
+          token: widget.token,
+          defaultFontSize: _defaultFontSize, // Truyền font size
+          defaultFontFamily: _defaultFontFamily, // Truyền font family
+        ),
+      ),
     );
     if (mounted) {
       setState(() {
@@ -660,6 +672,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                             builder: (context) => ComposeEmailScreen(
                                               token: widget.token,
                                               draft: item,
+                                              defaultFontSize: _defaultFontSize, // Truyền font size
+                                              defaultFontFamily: _defaultFontFamily, // Truyền font family
                                             ),
                                           ),
                                         );

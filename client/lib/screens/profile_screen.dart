@@ -18,12 +18,14 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _autoAnswerController = TextEditingController(); // Controller cho nội dung Auto Answer
+  final _autoAnswerController = TextEditingController();
   XFile? _image;
   String? _profilePicUrl;
   bool _twoFaEnabled = false;
-  bool _autoAnswerEnabled = false; // Biến trạng thái cho Auto Answer Mode
-  String _autoAnswerMessage = '';  // Nội dung phản hồi tự động
+  bool _autoAnswerEnabled = false;
+  String _autoAnswerMessage = '';
+  int _defaultFontSize = 12; // Giá trị mặc định cho font size
+  String _defaultFontFamily = 'Arial'; // Giá trị mặc định cho font family
   String _error = '';
   bool _isLoading = false;
   final String _baseUrl = 'http://localhost:3000';
@@ -48,10 +50,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _nameController.text = data['name'] ?? '';
           _profilePicUrl = data['profilePic'];
-          _twoFaEnabled = (data['twoFaEnabled'] == 1 || data['twoFaEnabled'] == true) ? true : false;
-          _autoAnswerEnabled = (data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true) ? true : false;
+          _twoFaEnabled = (data['twoFaEnabled'] == 1 || data['twoFaEnabled'] == true);
+          _autoAnswerEnabled = (data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true);
           _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
           _autoAnswerController.text = _autoAnswerMessage;
+          _defaultFontSize = data['defaultFontSize'] ?? 12;
+          _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
           _isLoading = false;
         });
       } else {
@@ -103,8 +107,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       request.headers['Authorization'] = 'Bearer ${widget.token}';
       request.fields['name'] = _nameController.text;
       request.fields['twoFaEnabled'] = _twoFaEnabled.toString();
-      request.fields['autoAnswerEnabled'] = _autoAnswerEnabled.toString(); // Thêm trạng thái Auto Answer
-      request.fields['autoAnswerMessage'] = _autoAnswerMessage; // Thêm nội dung phản hồi tự động
+      request.fields['autoAnswerEnabled'] = _autoAnswerEnabled.toString();
+      request.fields['autoAnswerMessage'] = _autoAnswerMessage;
+      request.fields['defaultFontSize'] = _defaultFontSize.toString();
+      request.fields['defaultFontFamily'] = _defaultFontFamily;
       if (_passwordController.text.isNotEmpty) {
         request.fields['password'] = _passwordController.text;
       }
@@ -134,13 +140,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profilePicUrl = updatedData['profilePic'];
           _isLoading = false;
         });
-        final updatedName = _nameController.text;
-        print('Profile updated successfully: ${response.body}');
         Navigator.pop(context, {
-          'name': updatedName,
+          'name': _nameController.text,
           'profilePic': updatedData['profilePic'],
           'autoAnswerEnabled': updatedData['autoAnswerEnabled'] == 1 || updatedData['autoAnswerEnabled'] == true,
           'autoAnswerMessage': updatedData['autoAnswerMessage'] ?? '',
+          'defaultFontSize': updatedData['defaultFontSize'] ?? 12,
+          'defaultFontFamily': updatedData['defaultFontFamily'] ?? 'Arial',
         });
       } else {
         setState(() {
@@ -228,7 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       value: _autoAnswerEnabled,
                       onChanged: (value) {
                         setState(() {
-                          _autoAnswerEnabled = value;
+                          _autoAnswerEnabled = value ?? false;
                           if (!_autoAnswerEnabled) {
                             _autoAnswerMessage = '';
                             _autoAnswerController.clear();
@@ -246,6 +252,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         maxLines: 3,
                       ),
+                    DropdownButton<int>(
+                      value: _defaultFontSize,
+                      hint: Text('Select Font Size'),
+                      items: List.generate(29, (index) => 8 + index)
+                          .map((size) => DropdownMenuItem<int>(
+                                value: size,
+                                child: Text('$size pt'),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _defaultFontSize = value;
+                          });
+                        }
+                      },
+                    ),
+                    DropdownButton<String>(
+                      value: _defaultFontFamily,
+                      hint: Text('Select Font Family'),
+                      items: ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana']
+                          .map((font) => DropdownMenuItem<String>(
+                                value: font,
+                                child: Text(font),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _defaultFontFamily = value;
+                          });
+                        }
+                      },
+                    ),
                     SizedBox(height: 16),
                     ElevatedButton(onPressed: _updateProfile, child: Text('Save Changes')),
                     SizedBox(height: 8),

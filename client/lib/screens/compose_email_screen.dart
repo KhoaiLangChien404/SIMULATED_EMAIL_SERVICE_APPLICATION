@@ -11,12 +11,16 @@ class ComposeEmailScreen extends StatefulWidget {
   final Map<String, dynamic>? replyTo;
   final Map<String, dynamic>? forwardFrom;
   final Map<String, dynamic>? draft;
+  final int defaultFontSize; // Thêm tham số font size
+  final String defaultFontFamily; // Thêm tham số font family
 
   const ComposeEmailScreen({
     required this.token,
     this.replyTo,
     this.forwardFrom,
     this.draft,
+    this.defaultFontSize = 12, // Giá trị mặc định
+    this.defaultFontFamily = 'Arial', // Giá trị mặc định
     super.key,
   });
 
@@ -43,14 +47,17 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
   @override
   void initState() {
     super.initState();
+    // Áp dụng font size và font family mặc định khi khởi tạo
+    _applyDefaultFontStyle();
+
     if (widget.replyTo != null) {
-      _toController.text = widget.replyTo!['senderPhone'];
-      _subjectController.text = 'Re: ${widget.replyTo!['subject'].replaceAll('Re: ', '')}';
+      _toController.text = widget.replyTo!['senderPhone'] ?? '';
+      _subjectController.text = 'Re: ${widget.replyTo!['subject']?.replaceAll('Re: ', '') ?? ''}';
       _bodyController.document.insert(0, ''); // Initialize with empty Delta
     } else if (widget.forwardFrom != null) {
       _toController.text = '';
-      _subjectController.text = 'Fwd: ${widget.forwardFrom!['subject'].replaceAll('Fwd: ', '')}';
-      final forwardContent = '\n\n-- Forwarded Message --\nFrom: ${widget.forwardFrom!['senderPhone']}\nDate: ${widget.forwardFrom!['timestamp']}\nSubject: ${widget.forwardFrom!['subject']}\n\n${widget.forwardFrom!['body'] ?? ''}';
+      _subjectController.text = 'Fwd: ${widget.forwardFrom!['subject']?.replaceAll('Fwd: ', '') ?? ''}';
+      final forwardContent = '\n\n-- Forwarded Message --\nFrom: ${widget.forwardFrom!['senderPhone'] ?? ''}\nDate: ${widget.forwardFrom!['timestamp'] ?? ''}\nSubject: ${widget.forwardFrom!['subject'] ?? ''}\n\n${widget.forwardFrom!['body'] ?? ''}';
       _bodyController.document.insert(0, forwardContent); // Insert forwarded content as plain text
     } else if (widget.draft != null) {
       _toController.text = widget.draft!['recipientPhone'] ?? '';
@@ -68,7 +75,7 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
           _bodyController.document = quill.Document()..insert(0, body);
         }
       } catch (e) {
-        // If JSON parsing fails, treat as plain text (expected for forwarded/replied drafts)
+        // If JSON parsing fails, treat as plain text
         _bodyController.document = quill.Document()..insert(0, body);
       }
       if (widget.draft!['attachment'] != null) {
@@ -85,6 +92,53 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
+  }
+
+  // Hàm áp dụng font style mặc định
+  void _applyDefaultFontStyle() {
+    final delta = _bodyController.document.toDelta();
+    if (delta.isEmpty) {
+      // Khi tài liệu trống, chèn một đoạn văn bản rỗng và áp dụng định dạng
+      _bodyController.document.insert(0, '');
+      _bodyController.formatText(
+        0,
+        1,
+        quill.Attribute(
+          quill.Attribute.size.key,
+          quill.AttributeScope.inline,
+          '${widget.defaultFontSize}pt',
+        ),
+      );
+      _bodyController.formatText(
+        0,
+        1,
+        quill.Attribute(
+          quill.Attribute.font.key,
+          quill.AttributeScope.inline,
+          widget.defaultFontFamily,
+        ),
+      );
+    } else {
+      // Áp dụng định dạng cho toàn bộ tài liệu
+      _bodyController.formatText(
+        0,
+        _bodyController.document.length,
+        quill.Attribute(
+          quill.Attribute.size.key,
+          quill.AttributeScope.inline,
+          '${widget.defaultFontSize}pt',
+        ),
+      );
+      _bodyController.formatText(
+        0,
+        _bodyController.document.length,
+        quill.Attribute(
+          quill.Attribute.font.key,
+          quill.AttributeScope.inline,
+          widget.defaultFontFamily,
+        ),
+      );
+    }
   }
 
   Future<void> _pickAttachment() async {
@@ -256,6 +310,10 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Kiểm tra giá trị mặc định để tránh lỗi runtime
+    final effectiveFontSize = widget.defaultFontSize > 0 ? widget.defaultFontSize.toDouble() : 12.0;
+    final effectiveFontFamily = widget.defaultFontFamily.isNotEmpty ? widget.defaultFontFamily : 'Arial';
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -303,6 +361,17 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
                           padding: const EdgeInsets.all(10),
                           placeholder: 'Compose your email...',
                           scrollable: true,
+                          customStyles: quill.DefaultStyles(
+                            paragraph: quill.DefaultTextBlockStyle(
+                              TextStyle(
+                                fontSize: effectiveFontSize,
+                                fontFamily: effectiveFontFamily,
+                              ),
+                              const quill.VerticalSpacing(0, 0),
+                              const quill.VerticalSpacing(0, 0),
+                              null,
+                            ),
+                          ),
                         ),
                       ),
                     ),

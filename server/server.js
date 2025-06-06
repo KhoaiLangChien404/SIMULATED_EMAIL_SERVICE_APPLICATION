@@ -33,92 +33,89 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
   if (err) console.error('Database connection error:', err);
   console.log('Connected to SQLite database');
   db.run('PRAGMA encoding = "UTF-8"');
-});
 
-// Database schema creation
-db.run(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone TEXT UNIQUE,
-    password TEXT,
-    name TEXT,
-    profilePic TEXT,
-    twoFaEnabled BOOLEAN DEFAULT 0,
-    autoAnswerEnabled BOOLEAN DEFAULT 0, -- Thêm cột cho Auto Answer Mode
-    autoAnswerMessage TEXT DEFAULT ''    -- Thêm cột cho nội dung phản hồi tự động
-  )
-`);
+  // Database schema creation
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE,
+      password TEXT,
+      name TEXT,
+      profilePic TEXT,
+      twoFaEnabled BOOLEAN DEFAULT 0,
+      autoAnswerEnabled BOOLEAN DEFAULT 0,
+      autoAnswerMessage TEXT DEFAULT ''
+    )
+  `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS emails (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    senderPhone TEXT,
-    recipientPhone TEXT,
-    cc TEXT DEFAULT '',
-    bcc TEXT DEFAULT '',
-    subject TEXT,
-    body TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    isRead BOOLEAN DEFAULT 0,
-    isStarred BOOLEAN DEFAULT 0,
-    isTrashed BOOLEAN DEFAULT 0
-  )
-`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS emails (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      senderPhone TEXT,
+      recipientPhone TEXT,
+      cc TEXT DEFAULT '',
+      bcc TEXT DEFAULT '',
+      subject TEXT,
+      body TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      isRead BOOLEAN DEFAULT 0,
+      isStarred BOOLEAN DEFAULT 0,
+      isTrashed BOOLEAN DEFAULT 0
+    )
+  `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS drafts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    senderPhone TEXT,
-    recipientPhone TEXT,
-    cc TEXT DEFAULT '',
-    bcc TEXT DEFAULT '',
-    subject TEXT,
-    body TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    attachment TEXT
-  )
-`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      senderPhone TEXT,
+      recipientPhone TEXT,
+      cc TEXT DEFAULT '',
+      bcc TEXT DEFAULT '',
+      subject TEXT,
+      body TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      attachment TEXT
+    )
+  `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    emailId INTEGER,
-    filePath TEXT,
-    fileType TEXT,
-    originalFileName TEXT,
-    FOREIGN KEY (emailId) REFERENCES emails(id)
-  )
-`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emailId INTEGER,
+      filePath TEXT,
+      fileType TEXT,
+      originalFileName TEXT,
+      FOREIGN KEY (emailId) REFERENCES emails(id)
+    )
+  `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS labels (
-    labelId INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER,
-    label TEXT UNIQUE,
-    FOREIGN KEY (userId) REFERENCES users(id)
-  )
-`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS labels (
+      labelId INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      label TEXT UNIQUE,
+      FOREIGN KEY (userId) REFERENCES users(id)
+    )
+  `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS email_labels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    emailId INTEGER,
-    labelId INTEGER,
-    FOREIGN KEY (emailId) REFERENCES emails(id),
-    FOREIGN KEY (labelId) REFERENCES labels(id),
-    UNIQUE(emailId, labelId)
-    
-);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS email_labels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emailId INTEGER,
+      labelId INTEGER,
+      FOREIGN KEY (emailId) REFERENCES emails(id),
+      FOREIGN KEY (labelId) REFERENCES labels(id),
+      UNIQUE(emailId, labelId)
+    )
+  `);
 
-
-
-`);
-
-db.run('ALTER TABLE users ADD COLUMN autoAnswerEnabled BOOLEAN DEFAULT 0', (err) => {
-  if (err) console.error('Error adding autoAnswerEnabled column:', err);
-});
-db.run('ALTER TABLE users ADD COLUMN autoAnswerMessage TEXT DEFAULT ""', (err) => {
-  if (err) console.error('Error adding autoAnswerMessage column:', err);
+  // Add defaultFontSize and defaultFontFamily columns if they don't exist
+  db.run('ALTER TABLE users ADD COLUMN defaultFontSize INTEGER DEFAULT 12', (err) => {
+    if (err) console.error('Error adding defaultFontSize column:', err);
+  });
+  db.run('ALTER TABLE users ADD COLUMN defaultFontFamily TEXT DEFAULT "Arial"', (err) => {
+    if (err) console.error('Error adding defaultFontFamily column:', err);
+  });
 });
 
 const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
@@ -222,21 +219,30 @@ app.post('/api/verify-2fa', authenticate, (req, res) => {
 // Profile
 app.get('/api/profile', authenticate, (req, res) => {
   db.get(
-    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', 
-    [req.user.phone], 
+    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily FROM users WHERE phone = ?',
+    [req.user.phone],
     (err, user) => {
       if (err) {
         console.error('Profile fetch error:', err);
-        return res.status(500).json({ error: 'Server error' });
+        return res.status(500).json({ error: 'Server error', details: err.message });
       }
       if (!user) return res.status(400).json({ error: 'User not found' });
-      res.json(user);
+      res.json({
+        phone: user.phone,
+        name: user.name,
+        profilePic: user.profilePic,
+        twoFaEnabled: user.twoFaEnabled === 1 || user.twoFaEnabled === true,
+        autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
+        autoAnswerMessage: user.autoAnswerMessage || '',
+        defaultFontSize: user.defaultFontSize || 12,
+        defaultFontFamily: user.defaultFontFamily || 'Arial'
+      });
     }
   );
 });
 
 app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, res) => {
-  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage } = req.body;
+  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily } = req.body;
   const profilePic = req.file ? `/uploads/${req.file.filename}` : null;
   const updates = [];
   const values = [];
@@ -252,7 +258,7 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
       values.push(hashedPassword);
     } catch (e) {
       console.error('Password hash error:', e);
-      return res.status(500).json({ error: 'Server error' });
+      return res.status(500).json({ error: 'Server error during password hashing' });
     }
   }
   if (profilePic) {
@@ -271,6 +277,20 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
     updates.push('autoAnswerMessage = ?');
     values.push(autoAnswerMessage || '');
   }
+  if (defaultFontSize !== undefined) {
+    const size = parseInt(defaultFontSize, 10);
+    if (size >= 8 && size <= 36) { // Giới hạn font size hợp lý
+      updates.push('defaultFontSize = ?');
+      values.push(size);
+    }
+  }
+  if (defaultFontFamily !== undefined) {
+    const validFonts = ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana']; // Danh sách font hỗ trợ
+    if (validFonts.includes(defaultFontFamily)) {
+      updates.push('defaultFontFamily = ?');
+      values.push(defaultFontFamily);
+    }
+  }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No updates provided' });
@@ -280,18 +300,27 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
   db.run(`UPDATE users SET ${updates.join(', ')} WHERE phone = ?`, values, (err) => {
     if (err) {
       console.error('Profile update error:', err);
-      return res.status(400).json({ error: 'Update failed' });
+      return res.status(400).json({ error: 'Update failed', details: err.message });
     }
     db.get(
-      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', 
-      [req.user.phone], 
+      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily FROM users WHERE phone = ?',
+      [req.user.phone],
       (err, user) => {
         if (err) {
           console.error('Profile fetch error after update:', err);
           return res.status(500).json({ error: 'Server error' });
         }
         if (!user) return res.status(400).json({ error: 'User not found after update' });
-        res.json(user);
+        res.json({
+          phone: user.phone,
+          name: user.name,
+          profilePic: user.profilePic,
+          twoFaEnabled: user.twoFaEnabled === 1 || user.twoFaEnabled === true,
+          autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
+          autoAnswerMessage: user.autoAnswerMessage || '',
+          defaultFontSize: user.defaultFontSize || 12,
+          defaultFontFamily: user.defaultFontFamily || 'Arial'
+        });
       }
     );
   });
@@ -617,7 +646,7 @@ app.post('/api/email-labels', authenticate, (req, res) => {
 // Serve file for download with original file name
 app.get('/api/download/:filePath', authenticate, (req, res) => {
   const filePath = decodeURIComponent(req.params.filePath);
-  const fullPath = path.join(__dirname, 'Uploads', filePath.split('/').pop());
+  const fullPath = path.join(__dirname, 'uploads', filePath.split('/').pop());
   db.get('SELECT originalFileName FROM attachments WHERE filePath = ?', [filePath], (err, attachment) => {
     if (err) {
       console.error('Attachment fetch error:', err);
