@@ -43,7 +43,9 @@ db.run(`
     password TEXT,
     name TEXT,
     profilePic TEXT,
-    twoFaEnabled BOOLEAN DEFAULT 0
+    twoFaEnabled BOOLEAN DEFAULT 0,
+    autoAnswerEnabled BOOLEAN DEFAULT 0, -- Thêm cột cho Auto Answer Mode
+    autoAnswerMessage TEXT DEFAULT ''    -- Thêm cột cho nội dung phản hồi tự động
   )
 `);
 
@@ -105,8 +107,19 @@ db.run(`
     FOREIGN KEY (emailId) REFERENCES emails(id),
     FOREIGN KEY (labelId) REFERENCES labels(id),
     UNIQUE(emailId, labelId)
+    
 );
+
+
+
 `);
+
+db.run('ALTER TABLE users ADD COLUMN autoAnswerEnabled BOOLEAN DEFAULT 0', (err) => {
+  if (err) console.error('Error adding autoAnswerEnabled column:', err);
+});
+db.run('ALTER TABLE users ADD COLUMN autoAnswerMessage TEXT DEFAULT ""', (err) => {
+  if (err) console.error('Error adding autoAnswerMessage column:', err);
+});
 
 const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
 
@@ -208,21 +221,26 @@ app.post('/api/verify-2fa', authenticate, (req, res) => {
 
 // Profile
 app.get('/api/profile', authenticate, (req, res) => {
-  db.get('SELECT phone, name, profilePic, twoFaEnabled FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
-    if (err) {
-      console.error('Profile fetch error:', err);
-      return res.status(500).json({ error: 'Server error' });
+  db.get(
+    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', 
+    [req.user.phone], 
+    (err, user) => {
+      if (err) {
+        console.error('Profile fetch error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!user) return res.status(400).json({ error: 'User not found' });
+      res.json(user);
     }
-    if (!user) return res.status(400).json({ error: 'User not found' });
-    res.json(user);
-  });
+  );
 });
 
 app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, res) => {
-  const { name, password, twoFaEnabled } = req.body;
+  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage } = req.body;
   const profilePic = req.file ? `/uploads/${req.file.filename}` : null;
   const updates = [];
   const values = [];
+
   if (name) {
     updates.push('name = ?');
     values.push(name);
@@ -245,23 +263,37 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
     updates.push('twoFaEnabled = ?');
     values.push(twoFaEnabled === 'true' ? 1 : 0);
   }
+  if (autoAnswerEnabled !== undefined) {
+    updates.push('autoAnswerEnabled = ?');
+    values.push(autoAnswerEnabled === 'true' ? 1 : 0);
+  }
+  if (autoAnswerMessage !== undefined) {
+    updates.push('autoAnswerMessage = ?');
+    values.push(autoAnswerMessage || '');
+  }
+
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No updates provided' });
   }
+
   values.push(req.user.phone);
   db.run(`UPDATE users SET ${updates.join(', ')} WHERE phone = ?`, values, (err) => {
     if (err) {
       console.error('Profile update error:', err);
       return res.status(400).json({ error: 'Update failed' });
     }
-    db.get('SELECT phone, name, profilePic, twoFaEnabled FROM users WHERE phone = ?', [req.user.phone], (err, user) => {
-      if (err) {
-        console.error('Profile fetch error after update:', err);
-        return res.status(500).json({ error: 'Server error' });
+    db.get(
+      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', 
+      [req.user.phone], 
+      (err, user) => {
+        if (err) {
+          console.error('Profile fetch error after update:', err);
+          return res.status(500).json({ error: 'Server error' });
+        }
+        if (!user) return res.status(400).json({ error: 'User not found after update' });
+        res.json(user);
       }
-      if (!user) return res.status(400).json({ error: 'User not found after update' });
-      res.json(user);
-    });
+    );
   });
 });
 
@@ -272,15 +304,18 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
   if (!recipientPhone || !subject || !body) {
     return res.status(400).json({ error: 'Recipient, subject, and body are required' });
   }
+
   try {
-    db.get('SELECT id FROM users WHERE phone = ?', [recipientPhone], (err, user) => {
+    db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', [recipientPhone], (err, recipient) => {
       if (err) {
         console.error('Recipient check error:', err);
         return res.status(500).json({ error: 'Server error' });
       }
-      if (!user) {
+      if (!recipient) {
         return res.status(400).json({ error: 'Recipient phone number not found' });
       }
+
+      // Lưu email vào database
       db.run(
         'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
         [req.user.phone, recipientPhone, cc || '', bcc || '', subject, body],
@@ -290,6 +325,8 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
             return res.status(400).json({ error: 'Failed to send email' });
           }
           const emailId = this.lastID;
+
+          // Lưu tệp đính kèm nếu có
           if (attachments.length > 0) {
             const attachmentData = attachments.map(file => ({
               emailId,
@@ -305,12 +342,31 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
                   console.error('Attachment insertion error:', err);
                   return res.status(400).json({ error: 'Failed to save attachments' });
                 }
-                res.json({ message: 'Email sent', emailId });
               }
             );
-          } else {
-            res.json({ message: 'Email sent', emailId });
           }
+
+          // Kiểm tra Auto Answer Mode của người nhận
+          if (recipient.autoAnswerEnabled && recipient.autoAnswerMessage) {
+            console.log(`Auto answering for recipient ${recipientPhone} with message: ${recipient.autoAnswerMessage}`);
+            db.run(
+              'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
+              [
+                recipientPhone,
+                req.user.phone,
+                `Re: ${subject}`,
+                recipient.autoAnswerMessage
+              ],
+              (err) => {
+                if (err) {
+                  console.error('Auto answer email insertion error:', err);
+                  // Không trả lỗi cho client vì email gốc đã gửi thành công
+                }
+              }
+            );
+          }
+
+          res.json({ message: 'Email sent', emailId });
         }
       );
     });

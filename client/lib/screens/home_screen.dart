@@ -30,6 +30,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final String _baseUrl = 'http://localhost:3000';
   List<String> _labels = [];
+  bool _autoAnswerEnabled = false;
+  String _autoAnswerMessage = '';
 
   // Advanced Search Filters
   bool _fromMe = false;
@@ -171,6 +173,8 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _userName = data['name'] ?? 'User';
             _profilePicUrl = data['profilePic'];
+            _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
+            _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
           });
         }
       } else {
@@ -264,6 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _userName = result['name'] ?? _userName;
         _profilePicUrl = result['profilePic'] ?? _profilePicUrl;
+        _autoAnswerEnabled = result['autoAnswerEnabled'] ?? _autoAnswerEnabled;
+        _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
       });
     }
   }
@@ -476,9 +482,19 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              const DrawerHeader(
+              DrawerHeader(
                 decoration: BoxDecoration(color: Colors.blue),
-                child: Text('Email Folders', style: TextStyle(color: Colors.white, fontSize: 24)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Email Folders', style: TextStyle(color: Colors.white, fontSize: 24)),
+                    Spacer(),
+                    Text(
+                      'Auto Answer: ${_autoAnswerEnabled ? "On" : "Off"}',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ],
+                ),
               ),
               ListTile(
                 leading: const Icon(Icons.inbox),

@@ -18,9 +18,12 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _autoAnswerController = TextEditingController(); // Controller cho nội dung Auto Answer
   XFile? _image;
   String? _profilePicUrl;
   bool _twoFaEnabled = false;
+  bool _autoAnswerEnabled = false; // Biến trạng thái cho Auto Answer Mode
+  String _autoAnswerMessage = '';  // Nội dung phản hồi tự động
   String _error = '';
   bool _isLoading = false;
   final String _baseUrl = 'http://localhost:3000';
@@ -43,9 +46,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          _nameController.text = data['name'];
+          _nameController.text = data['name'] ?? '';
           _profilePicUrl = data['profilePic'];
           _twoFaEnabled = (data['twoFaEnabled'] == 1 || data['twoFaEnabled'] == true) ? true : false;
+          _autoAnswerEnabled = (data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true) ? true : false;
+          _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
+          _autoAnswerController.text = _autoAnswerMessage;
           _isLoading = false;
         });
       } else {
@@ -80,6 +86,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    if (_autoAnswerEnabled && _autoAnswerMessage.trim().isEmpty) {
+      setState(() {
+        _error = 'Auto Answer Message is required when Auto Answer Mode is enabled';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = '';
@@ -90,6 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       request.headers['Authorization'] = 'Bearer ${widget.token}';
       request.fields['name'] = _nameController.text;
       request.fields['twoFaEnabled'] = _twoFaEnabled.toString();
+      request.fields['autoAnswerEnabled'] = _autoAnswerEnabled.toString(); // Thêm trạng thái Auto Answer
+      request.fields['autoAnswerMessage'] = _autoAnswerMessage; // Thêm nội dung phản hồi tự động
       if (_passwordController.text.isNotEmpty) {
         request.fields['password'] = _passwordController.text;
       }
@@ -124,6 +139,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Navigator.pop(context, {
           'name': updatedName,
           'profilePic': updatedData['profilePic'],
+          'autoAnswerEnabled': updatedData['autoAnswerEnabled'] == 1 || updatedData['autoAnswerEnabled'] == true,
+          'autoAnswerMessage': updatedData['autoAnswerMessage'] ?? '',
         });
       } else {
         setState(() {
@@ -144,11 +161,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
-    // Sử dụng pushAndRemoveUntil để xóa toàn bộ stack và đặt LoginScreen làm màn hình gốc
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (context) => LoginScreen()),
-      (Route<dynamic> route) => false, // Loại bỏ tất cả các route trước đó
+      (Route<dynamic> route) => false,
     );
   }
 
@@ -156,6 +172,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _passwordController.dispose();
+    _autoAnswerController.dispose();
     super.dispose();
   }
 
@@ -167,54 +184,79 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ? Center(child: CircularProgressIndicator())
           : Padding(
               padding: EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  if (_profilePicUrl != null)
-                    Image.network(
-                      '$_baseUrl$_profilePicUrl',
-                      width: 100,
-                      height: 100,
-                      errorBuilder: (context, error, stackTrace) {
-                        print('Image load error: $error');
-                        return CircleAvatar(
-                          backgroundColor: Colors.white,
-                          radius: 50,
-                          child: Icon(Icons.person, size: 50, color: Colors.grey),
-                        );
-                      },
-                    )
-                  else
-                    CircleAvatar(
-                      backgroundColor: Colors.white,
-                      radius: 50,
-                      child: Icon(Icons.person, size: 50, color: Colors.grey),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    if (_profilePicUrl != null)
+                      Image.network(
+                        '$_baseUrl$_profilePicUrl',
+                        width: 100,
+                        height: 100,
+                        errorBuilder: (context, error, stackTrace) {
+                          print('Image load error: $error');
+                          return CircleAvatar(
+                            backgroundColor: Colors.white,
+                            radius: 50,
+                            child: Icon(Icons.person, size: 50, color: Colors.grey),
+                          );
+                        },
+                      )
+                    else
+                      CircleAvatar(
+                        backgroundColor: Colors.white,
+                        radius: 50,
+                        child: Icon(Icons.person, size: 50, color: Colors.grey),
+                      ),
+                    ElevatedButton(onPressed: _pickImage, child: Text('Change Profile Picture')),
+                    if (_image != null) Text('New image: ${_image!.name}'),
+                    TextField(
+                      controller: _nameController,
+                      decoration: InputDecoration(labelText: 'Name'),
                     ),
-                  ElevatedButton(onPressed: _pickImage, child: Text('Change Profile Picture')),
-                  if (_image != null) Text('New image: ${_image!.name}'),
-                  TextField(
-                    controller: _nameController,
-                    decoration: InputDecoration(labelText: 'Name'),
-                  ),
-                  TextField(
-                    controller: _passwordController,
-                    decoration: InputDecoration(labelText: 'New Password (optional)'),
-                    obscureText: true,
-                  ),
-                  SwitchListTile(
-                    title: Text('Enable Two-Step Verification'),
-                    value: _twoFaEnabled,
-                    onChanged: (value) => setState(() => _twoFaEnabled = value),
-                  ),
-                  SizedBox(height: 16),
-                  ElevatedButton(onPressed: _updateProfile, child: Text('Save Changes')),
-                  SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: _logout,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    child: Text('Logout'),
-                  ),
-                  if (_error.isNotEmpty) Text(_error, style: TextStyle(color: Colors.red)),
-                ],
+                    TextField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(labelText: 'New Password (optional)'),
+                      obscureText: true,
+                    ),
+                    SwitchListTile(
+                      title: Text('Enable Two-Step Verification'),
+                      value: _twoFaEnabled,
+                      onChanged: (value) => setState(() => _twoFaEnabled = value),
+                    ),
+                    SwitchListTile(
+                      title: Text('Enable Auto Answer Mode'),
+                      value: _autoAnswerEnabled,
+                      onChanged: (value) {
+                        setState(() {
+                          _autoAnswerEnabled = value;
+                          if (!_autoAnswerEnabled) {
+                            _autoAnswerMessage = '';
+                            _autoAnswerController.clear();
+                          }
+                        });
+                      },
+                    ),
+                    if (_autoAnswerEnabled)
+                      TextField(
+                        controller: _autoAnswerController,
+                        onChanged: (value) => _autoAnswerMessage = value,
+                        decoration: InputDecoration(
+                          labelText: 'Auto Answer Message',
+                          hintText: 'Enter your auto reply message here...',
+                        ),
+                        maxLines: 3,
+                      ),
+                    SizedBox(height: 16),
+                    ElevatedButton(onPressed: _updateProfile, child: Text('Save Changes')),
+                    SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _logout,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      child: Text('Logout'),
+                    ),
+                    if (_error.isNotEmpty) Text(_error, style: TextStyle(color: Colors.red)),
+                  ],
+                ),
               ),
             ),
     );
