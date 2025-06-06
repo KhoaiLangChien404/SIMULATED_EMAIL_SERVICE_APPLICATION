@@ -242,7 +242,7 @@ app.get('/api/profile', authenticate, (req, res) => {
 });
 
 app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, res) => {
-  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily } = req.body;
+  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode } = req.body;
   const profilePic = req.file ? `/uploads/${req.file.filename}` : null;
   const updates = [];
   const values = [];
@@ -279,17 +279,21 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
   }
   if (defaultFontSize !== undefined) {
     const size = parseInt(defaultFontSize, 10);
-    if (size >= 8 && size <= 36) { // Giới hạn font size hợp lý
+    if (size >= 8 && size <= 36) {
       updates.push('defaultFontSize = ?');
       values.push(size);
     }
   }
   if (defaultFontFamily !== undefined) {
-    const validFonts = ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana']; // Danh sách font hỗ trợ
+    const validFonts = ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana'];
     if (validFonts.includes(defaultFontFamily)) {
       updates.push('defaultFontFamily = ?');
       values.push(defaultFontFamily);
     }
+  }
+  if (isDarkMode !== undefined) {
+    updates.push('isDarkMode = ?');
+    values.push(isDarkMode === 'true' ? 1 : 0);
   }
 
   if (updates.length === 0) {
@@ -303,7 +307,7 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
       return res.status(400).json({ error: 'Update failed', details: err.message });
     }
     db.get(
-      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily FROM users WHERE phone = ?',
+      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
       [req.user.phone],
       (err, user) => {
         if (err) {
@@ -319,11 +323,38 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
           autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
           autoAnswerMessage: user.autoAnswerMessage || '',
           defaultFontSize: user.defaultFontSize || 12,
-          defaultFontFamily: user.defaultFontFamily || 'Arial'
+          defaultFontFamily: user.defaultFontFamily || 'Arial',
+          isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
         });
       }
     );
   });
+});
+
+// Inside app.get('/api/profile', authenticate, ...)
+app.get('/api/profile', authenticate, (req, res) => {
+  db.get(
+    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
+    [req.user.phone],
+    (err, user) => {
+      if (err) {
+        console.error('Profile fetch error:', err);
+        return res.status(500).json({ error: 'Server error', details: err.message });
+      }
+      if (!user) return res.status(400).json({ error: 'User not found' });
+      res.json({
+        phone: user.phone,
+        name: user.name,
+        profilePic: user.profilePic,
+        twoFaEnabled: user.twoFaEnabled === 1 || user.twoFaEnabled === true,
+        autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
+        autoAnswerMessage: user.autoAnswerMessage || '',
+        defaultFontSize: user.defaultFontSize || 12,
+        defaultFontFamily: user.defaultFontFamily || 'Arial',
+        isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
+      });
+    }
+  );
 });
 
 // Compose and Send Email with Attachments

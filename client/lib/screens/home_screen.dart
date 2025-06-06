@@ -7,6 +7,8 @@ import 'compose_email_screen.dart';
 import 'email_detail_screen.dart';
 import 'login_screen.dart';
 import 'manage_labels_screen.dart';
+import 'theme_provider.dart';
+import 'package:provider/provider.dart';
 
 class HomeScreen extends StatefulWidget {
   final String token;
@@ -421,6 +423,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
@@ -443,10 +447,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   decoration: InputDecoration(
                     hintText: 'Search emails...',
                     border: InputBorder.none,
-                    hintStyle: TextStyle(color: Colors.white70),
+                    hintStyle: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.black54),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
-                            icon: Icon(Icons.clear, color: Colors.white),
+                            icon: Icon(Icons.clear, color: themeProvider.isDarkMode ? Colors.white : Colors.black),
                             onPressed: () {
                               _searchController.clear();
                               setState(() {
@@ -461,11 +465,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           )
                         : null,
                   ),
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.filter_alt, color: Colors.white),
+                icon: Icon(Icons.filter_alt, color: themeProvider.isDarkMode ? Colors.white : Colors.black),
                 onPressed: _showAdvancedSearchPanel,
                 tooltip: 'Advanced Search',
               ),
@@ -495,15 +499,15 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: EdgeInsets.zero,
             children: [
               DrawerHeader(
-                decoration: BoxDecoration(color: Colors.blue),
+                decoration: BoxDecoration(color: themeProvider.isDarkMode ? Colors.grey[800] : Colors.blue),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Email Folders', style: TextStyle(color: Colors.white, fontSize: 24)),
+                    Text('Email Folders', style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 24)),
                     Spacer(),
                     Text(
                       'Auto Answer: ${_autoAnswerEnabled ? "On" : "Off"}',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 16),
                     ),
                   ],
                 ),
@@ -596,12 +600,12 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_showAdvancedSearch)
               Container(
                 padding: const EdgeInsets.all(8.0),
-                color: Colors.grey[200],
+                color: themeProvider.isDarkMode ? Colors.grey[900] : Colors.grey[200],
                 child: Column(
                   children: [
                     if (_currentFolder != 'draft')
                       CheckboxListTile(
-                        title: const Text('From me'),
+                        title: Text('From me', style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black)),
                         value: _fromMe,
                         onChanged: (value) {
                           setState(() {
@@ -643,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             Expanded(
               child: (_error.isNotEmpty)
-                  ? Center(child: Text(_error, style: const TextStyle(color: Colors.red)))
+                  ? Center(child: Text(_error, style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red)))
                   : (_searchQuery.isNotEmpty && (_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft'))
                       ? Center(child: Text('Not found'))
                       : (_emails.isEmpty && _drafts.isEmpty)

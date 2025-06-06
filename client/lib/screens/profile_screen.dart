@@ -5,7 +5,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'login_screen.dart';
+import 'theme_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String token;
@@ -24,8 +26,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _twoFaEnabled = false;
   bool _autoAnswerEnabled = false;
   String _autoAnswerMessage = '';
-  int _defaultFontSize = 12; // Giá trị mặc định cho font size
-  String _defaultFontFamily = 'Arial'; // Giá trị mặc định cho font family
+  int _defaultFontSize = 12;
+  String _defaultFontFamily = 'Arial';
   String _error = '';
   bool _isLoading = false;
   final String _baseUrl = 'http://localhost:3000';
@@ -56,6 +58,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _autoAnswerController.text = _autoAnswerMessage;
           _defaultFontSize = data['defaultFontSize'] ?? 12;
           _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
+          final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+          themeProvider.setDarkMode(data['isDarkMode'] ?? false); // Use setDarkMode instead
           _isLoading = false;
         });
       } else {
@@ -111,6 +115,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       request.fields['autoAnswerMessage'] = _autoAnswerMessage;
       request.fields['defaultFontSize'] = _defaultFontSize.toString();
       request.fields['defaultFontFamily'] = _defaultFontFamily;
+      request.fields['isDarkMode'] = Provider.of<ThemeProvider>(context, listen: false).isDarkMode.toString(); // Save theme preference
       if (_passwordController.text.isNotEmpty) {
         request.fields['password'] = _passwordController.text;
       }
@@ -147,6 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'autoAnswerMessage': updatedData['autoAnswerMessage'] ?? '',
           'defaultFontSize': updatedData['defaultFontSize'] ?? 12,
           'defaultFontFamily': updatedData['defaultFontFamily'] ?? 'Arial',
+          'isDarkMode': updatedData['isDarkMode'] ?? false, // Return updated theme preference
         });
       } else {
         setState(() {
@@ -184,6 +190,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return Scaffold(
       appBar: AppBar(title: Text('Profile')),
       body: _isLoading
@@ -286,6 +294,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         }
                       },
                     ),
+                    SwitchListTile(
+                      title: Text('Dark Mode'),
+                      value: themeProvider.isDarkMode,
+                      onChanged: (value) {
+                        themeProvider.toggleTheme();
+                        setState(() {}); // Trigger rebuild to reflect theme change
+                      },
+                    ),
                     SizedBox(height: 16),
                     ElevatedButton(onPressed: _updateProfile, child: Text('Save Changes')),
                     SizedBox(height: 8),
@@ -294,7 +310,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                       child: Text('Logout'),
                     ),
-                    if (_error.isNotEmpty) Text(_error, style: TextStyle(color: Colors.red)),
+                    if (_error.isNotEmpty) Text(_error, style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red)),
                   ],
                 ),
               ),
