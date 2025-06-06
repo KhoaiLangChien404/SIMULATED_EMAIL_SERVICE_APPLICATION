@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'profile_screen.dart';
 import 'compose_email_screen.dart';
 import 'email_detail_screen.dart';
 import 'login_screen.dart';
 import 'manage_labels_screen.dart';
 import 'theme_provider.dart';
-import 'package:provider/provider.dart';
 
 class HomeScreen extends StatefulWidget {
   final String token;
@@ -34,8 +34,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> _labels = [];
   bool _autoAnswerEnabled = false;
   String _autoAnswerMessage = '';
-  int _defaultFontSize = 12; // Thêm biến font size
-  String _defaultFontFamily = 'Arial'; // Thêm biến font family
+  int _defaultFontSize = 12;
+  String _defaultFontFamily = 'Arial';
 
   // Advanced Search Filters
   bool _fromMe = false;
@@ -179,8 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _profilePicUrl = data['profilePic'];
             _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
             _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
-            _defaultFontSize = data['defaultFontSize'] ?? 12; // Cập nhật font size
-            _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial'; // Cập nhật font family
+            _defaultFontSize = data['defaultFontSize'] ?? 12;
+            _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
           });
         }
       } else {
@@ -204,7 +204,6 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) {
           setState(() {
             _labels = data.cast<String>();
-            // Remove selected labels that no longer exist
             _selectedLabels.removeWhere((label) => !_labels.contains(label));
           });
         }
@@ -276,8 +275,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _profilePicUrl = result['profilePic'] ?? _profilePicUrl;
         _autoAnswerEnabled = result['autoAnswerEnabled'] ?? _autoAnswerEnabled;
         _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
-        _defaultFontSize = result['defaultFontSize'] ?? 12; // Cập nhật font size
-        _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial'; // Cập nhật font family
+        _defaultFontSize = result['defaultFontSize'] ?? 12;
+        _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial';
       });
     }
   }
@@ -354,8 +353,8 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => ComposeEmailScreen(
           token: widget.token,
-          defaultFontSize: _defaultFontSize, // Truyền font size
-          defaultFontFamily: _defaultFontFamily, // Truyền font family
+          defaultFontSize: _defaultFontSize,
+          defaultFontFamily: _defaultFontFamily,
         ),
       ),
     );
@@ -504,10 +503,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Email Folders', style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 24)),
-                    Spacer(),
+                    const Spacer(),
                     Text(
                       'Auto Answer: ${_autoAnswerEnabled ? "On" : "Off"}',
                       style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 16),
+                    ),
+                    Text(
+                      'Current Time: 11:33 PM +07, Friday, June 06, 2025',
+                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.white70, fontSize: 12),
                     ),
                   ],
                 ),
@@ -676,8 +679,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                             builder: (context) => ComposeEmailScreen(
                                               token: widget.token,
                                               draft: item,
-                                              defaultFontSize: _defaultFontSize, // Truyền font size
-                                              defaultFontFamily: _defaultFontFamily, // Truyền font family
+                                              defaultFontSize: _defaultFontSize,
+                                              defaultFontFamily: _defaultFontFamily,
                                             ),
                                           ),
                                         );

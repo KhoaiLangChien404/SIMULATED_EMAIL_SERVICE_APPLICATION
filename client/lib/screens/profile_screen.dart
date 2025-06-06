@@ -11,7 +11,7 @@ import 'theme_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String token;
-  ProfileScreen({required this.token});
+  const ProfileScreen({required this.token, super.key});
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -46,20 +46,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/profile'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
-      ).timeout(Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
           _nameController.text = data['name'] ?? '';
           _profilePicUrl = data['profilePic'];
-          _twoFaEnabled = (data['twoFaEnabled'] == 1 || data['twoFaEnabled'] == true);
-          _autoAnswerEnabled = (data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true);
+          _twoFaEnabled = data['twoFaEnabled'] == true || data['twoFaEnabled'] == 1;
+          _autoAnswerEnabled = data['autoAnswerEnabled'] == true || data['autoAnswerEnabled'] == 1;
           _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
           _autoAnswerController.text = _autoAnswerMessage;
           _defaultFontSize = data['defaultFontSize'] ?? 12;
           _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
           final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-          themeProvider.setDarkMode(data['isDarkMode'] ?? false); // Use setDarkMode instead
+          themeProvider.setDarkMode(data['isDarkMode'] ?? false);
           _isLoading = false;
         });
       } else {
@@ -115,7 +115,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       request.fields['autoAnswerMessage'] = _autoAnswerMessage;
       request.fields['defaultFontSize'] = _defaultFontSize.toString();
       request.fields['defaultFontFamily'] = _defaultFontFamily;
-      request.fields['isDarkMode'] = Provider.of<ThemeProvider>(context, listen: false).isDarkMode.toString(); // Save theme preference
+      request.fields['isDarkMode'] = Provider.of<ThemeProvider>(context, listen: false).isDarkMode.toString();
       if (_passwordController.text.isNotEmpty) {
         request.fields['password'] = _passwordController.text;
       }
@@ -136,7 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
       }
 
-      final streamedResponse = await request.send().timeout(Duration(seconds: 10));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 10));
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -148,11 +148,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Navigator.pop(context, {
           'name': _nameController.text,
           'profilePic': updatedData['profilePic'],
-          'autoAnswerEnabled': updatedData['autoAnswerEnabled'] == 1 || updatedData['autoAnswerEnabled'] == true,
+          'autoAnswerEnabled': updatedData['autoAnswerEnabled'] == true || updatedData['autoAnswerEnabled'] == 1,
           'autoAnswerMessage': updatedData['autoAnswerMessage'] ?? '',
           'defaultFontSize': updatedData['defaultFontSize'] ?? 12,
           'defaultFontFamily': updatedData['defaultFontFamily'] ?? 'Arial',
-          'isDarkMode': updatedData['isDarkMode'] ?? false, // Return updated theme preference
+          'isDarkMode': updatedData['isDarkMode'] ?? false,
         });
       } else {
         setState(() {
@@ -175,7 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.remove('token');
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (context) => LoginScreen()),
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
       (Route<dynamic> route) => false,
     );
   }
@@ -193,11 +193,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Profile')),
+      appBar: AppBar(title: const Text('Profile')), // Thêm const cho Text
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : Padding(
-              padding: EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16.0),
               child: SingleChildScrollView(
                 child: Column(
                   children: [
@@ -208,7 +208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         height: 100,
                         errorBuilder: (context, error, stackTrace) {
                           print('Image load error: $error');
-                          return CircleAvatar(
+                          return const CircleAvatar(
                             backgroundColor: Colors.white,
                             radius: 50,
                             child: Icon(Icons.person, size: 50, color: Colors.grey),
@@ -216,29 +216,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         },
                       )
                     else
-                      CircleAvatar(
+                      const CircleAvatar(
                         backgroundColor: Colors.white,
                         radius: 50,
                         child: Icon(Icons.person, size: 50, color: Colors.grey),
                       ),
-                    ElevatedButton(onPressed: _pickImage, child: Text('Change Profile Picture')),
+                    ElevatedButton(onPressed: _pickImage, child: const Text('Change Profile Picture')),
                     if (_image != null) Text('New image: ${_image!.name}'),
                     TextField(
                       controller: _nameController,
-                      decoration: InputDecoration(labelText: 'Name'),
+                      decoration: const InputDecoration(labelText: 'Name'),
                     ),
                     TextField(
                       controller: _passwordController,
-                      decoration: InputDecoration(labelText: 'New Password (optional)'),
+                      decoration: const InputDecoration(labelText: 'New Password (optional)'),
                       obscureText: true,
                     ),
                     SwitchListTile(
-                      title: Text('Enable Two-Step Verification'),
+                      title: const Text('Enable Two-Step Verification'),
                       value: _twoFaEnabled,
                       onChanged: (value) => setState(() => _twoFaEnabled = value),
                     ),
                     SwitchListTile(
-                      title: Text('Enable Auto Answer Mode'),
+                      title: const Text('Enable Auto Answer Mode'),
                       value: _autoAnswerEnabled,
                       onChanged: (value) {
                         setState(() {
@@ -254,7 +254,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       TextField(
                         controller: _autoAnswerController,
                         onChanged: (value) => _autoAnswerMessage = value,
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           labelText: 'Auto Answer Message',
                           hintText: 'Enter your auto reply message here...',
                         ),
@@ -262,7 +262,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     DropdownButton<int>(
                       value: _defaultFontSize,
-                      hint: Text('Select Font Size'),
+                      hint: const Text('Select Font Size'),
                       items: List.generate(29, (index) => 8 + index)
                           .map((size) => DropdownMenuItem<int>(
                                 value: size,
@@ -279,13 +279,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     DropdownButton<String>(
                       value: _defaultFontFamily,
-                      hint: Text('Select Font Family'),
-                      items: ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana']
-                          .map((font) => DropdownMenuItem<String>(
-                                value: font,
-                                child: Text(font),
-                              ))
-                          .toList(),
+                      hint: const Text('Select Font Family'),
+                      items: const [
+                        DropdownMenuItem(value: 'Arial', child: Text('Arial')),
+                        DropdownMenuItem(value: 'Times New Roman', child: Text('Times New Roman')),
+                        DropdownMenuItem(value: 'Courier New', child: Text('Courier New')),
+                        DropdownMenuItem(value: 'Helvetica', child: Text('Helvetica')),
+                        DropdownMenuItem(value: 'Verdana', child: Text('Verdana')),
+                      ],
                       onChanged: (value) {
                         if (value != null) {
                           setState(() {
@@ -295,22 +296,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       },
                     ),
                     SwitchListTile(
-                      title: Text('Dark Mode'),
+                      title: const Text('Dark Mode'),
                       value: themeProvider.isDarkMode,
                       onChanged: (value) {
                         themeProvider.toggleTheme();
-                        setState(() {}); // Trigger rebuild to reflect theme change
+                        setState(() {});
                       },
                     ),
-                    SizedBox(height: 16),
-                    ElevatedButton(onPressed: _updateProfile, child: Text('Save Changes')),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 16),
+                    ElevatedButton(onPressed: _updateProfile, child: const Text('Save Changes')),
+                    const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: _logout,
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                      child: Text('Logout'),
+                      child: const Text('Logout'),
                     ),
-                    if (_error.isNotEmpty) Text(_error, style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red)),
+                    if (_error.isNotEmpty)
+                      Text(
+                        _error,
+                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red),
+                      ),
                   ],
                 ),
               ),

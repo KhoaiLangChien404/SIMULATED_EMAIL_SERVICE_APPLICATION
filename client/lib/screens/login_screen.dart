@@ -8,6 +8,8 @@ import 'home_screen.dart';
 import 'password_recovery_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
@@ -36,19 +38,19 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/api/login'),
-        headers: {'Content-Type': 'application/json'},
+        headers: const {'Content-Type': 'application/json'},
         body: jsonEncode({
           'phone': _phoneController.text,
           'password': _passwordController.text,
         }),
-      ).timeout(Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', data['token']);
         setState(() {
-          _twoFaEnabled = (data['twoFaEnabled'] == 1 || data['twoFaEnabled'] == true) ? true : false;
+          _twoFaEnabled = data['twoFaEnabled'] == true || data['twoFaEnabled'] == 1;
           _isLoading = false;
         });
         if (_twoFaEnabled) {
@@ -88,39 +90,49 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () async => false, // Ngăn người dùng quay lại
+      onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Login'),
-          automaticallyImplyLeading: false, // Ẩn nút quay lại
+          title: const Text('Login'), // Thêm const cho Text
+          automaticallyImplyLeading: false,
         ),
         body: Padding(
-          padding: EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
               TextField(
                 controller: _phoneController,
-                decoration: InputDecoration(labelText: 'Phone Number'),
+                decoration: const InputDecoration(labelText: 'Phone Number'),
                 keyboardType: TextInputType.phone,
               ),
               TextField(
                 controller: _passwordController,
-                decoration: InputDecoration(labelText: 'Password'),
+                decoration: const InputDecoration(labelText: 'Password'),
                 obscureText: true,
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               _isLoading
-                  ? CircularProgressIndicator()
-                  : ElevatedButton(onPressed: _login, child: Text('Login')),
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(onPressed: _login, child: const Text('Login')),
               TextButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => RegisterScreen())),
-                child: Text('Register'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => RegisterScreen()),
+                ),
+                child: const Text('Register'),
               ),
               TextButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PasswordRecoveryScreen())),
-                child: Text('Forgot Password?'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => PasswordRecoveryScreen()),
+                ),
+                child: const Text('Forgot Password?'),
               ),
-              if (_error.isNotEmpty) Text(_error, style: TextStyle(color: Colors.red)),
+              if (_error.isNotEmpty)
+                Text(
+                  _error,
+                  style: const TextStyle(color: Colors.red),
+                ),
             ],
           ),
         ),

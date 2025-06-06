@@ -44,7 +44,10 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
       profilePic TEXT,
       twoFaEnabled BOOLEAN DEFAULT 0,
       autoAnswerEnabled BOOLEAN DEFAULT 0,
-      autoAnswerMessage TEXT DEFAULT ''
+      autoAnswerMessage TEXT DEFAULT '',
+      defaultFontSize INTEGER DEFAULT 12,
+      defaultFontFamily TEXT DEFAULT 'Arial',
+      isDarkMode BOOLEAN DEFAULT 0
     )
   `);
 
@@ -108,14 +111,6 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
       UNIQUE(emailId, labelId)
     )
   `);
-
-  // Add defaultFontSize and defaultFontFamily columns if they don't exist
-  db.run('ALTER TABLE users ADD COLUMN defaultFontSize INTEGER DEFAULT 12', (err) => {
-    if (err) console.error('Error adding defaultFontSize column:', err);
-  });
-  db.run('ALTER TABLE users ADD COLUMN defaultFontFamily TEXT DEFAULT "Arial"', (err) => {
-    if (err) console.error('Error adding defaultFontFamily column:', err);
-  });
 });
 
 const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
@@ -141,8 +136,8 @@ app.post('/api/register', upload.single('profilePic'), async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     db.run(
-      'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled) VALUES (?, ?, ?, ?, ?)',
-      [phone, hashedPassword, name, profilePic, false],
+      'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled, autoAnswerEnabled, isDarkMode) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [phone, hashedPassword, name, profilePic, false, false, false],
       (err) => {
         if (err) {
           console.error('Registration error:', err);
@@ -219,7 +214,7 @@ app.post('/api/verify-2fa', authenticate, (req, res) => {
 // Profile
 app.get('/api/profile', authenticate, (req, res) => {
   db.get(
-    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily FROM users WHERE phone = ?',
+    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
     [req.user.phone],
     (err, user) => {
       if (err) {
@@ -235,7 +230,8 @@ app.get('/api/profile', authenticate, (req, res) => {
         autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
         autoAnswerMessage: user.autoAnswerMessage || '',
         defaultFontSize: user.defaultFontSize || 12,
-        defaultFontFamily: user.defaultFontFamily || 'Arial'
+        defaultFontFamily: user.defaultFontFamily || 'Arial',
+        isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
       });
     }
   );
@@ -329,32 +325,6 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
       }
     );
   });
-});
-
-// Inside app.get('/api/profile', authenticate, ...)
-app.get('/api/profile', authenticate, (req, res) => {
-  db.get(
-    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
-    [req.user.phone],
-    (err, user) => {
-      if (err) {
-        console.error('Profile fetch error:', err);
-        return res.status(500).json({ error: 'Server error', details: err.message });
-      }
-      if (!user) return res.status(400).json({ error: 'User not found' });
-      res.json({
-        phone: user.phone,
-        name: user.name,
-        profilePic: user.profilePic,
-        twoFaEnabled: user.twoFaEnabled === 1 || user.twoFaEnabled === true,
-        autoAnswerEnabled: user.autoAnswerEnabled === 1 || user.autoAnswerEnabled === true,
-        autoAnswerMessage: user.autoAnswerMessage || '',
-        defaultFontSize: user.defaultFontSize || 12,
-        defaultFontFamily: user.defaultFontFamily || 'Arial',
-        isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
-      });
-    }
-  );
 });
 
 // Compose and Send Email with Attachments
