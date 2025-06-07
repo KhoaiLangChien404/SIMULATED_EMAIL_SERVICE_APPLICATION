@@ -3,12 +3,13 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'compose_email_screen.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html;
+import 'package:universal_html/html.dart' as html;
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'dart:io';
 import 'dart:math' as math;
+import 'compose_email_screen.dart';
 
 class EmailDetailScreen extends StatefulWidget {
   final String token;
@@ -25,7 +26,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
   String _errorMessage = '';
   String? _pdfError;
   bool _isLoading = true;
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
   Map<String, String?> _localFilePaths = {};
   Map<String, String?> _originalFileNames = {};
   List<String> _availableLabels = [];
@@ -270,11 +271,12 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           final fileName = originalFileName ?? filePath.split('/').last;
           final localFile = File('${tempDir.path}/$fileName');
           await localFile.writeAsBytes(bytes);
-          final uri = Uri.file(localFile.path);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else {
-            print('Could not launch $uri');
+          final result = await OpenFile.open(localFile.path);
+          if (result.type != ResultType.done) {
+            setState(() {
+              _errorMessage = 'Failed to open file: ${result.message}';
+            });
+            print('Failed to open file: ${result.message}');
           }
         }
       } else {
