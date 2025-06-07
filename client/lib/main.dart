@@ -55,44 +55,54 @@ class _CheckLoginState extends State<CheckLogin> {
   }
 
   Future<void> _checkLoginStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    debugPrint('Checking login status...');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      debugPrint('Token: $token');
 
-    if (token != null) {
-      try {
-        final response = await http.get(
-          Uri.parse('$_baseUrl/api/profile'),
-          headers: {'Authorization': 'Bearer $token'},
-        ).timeout(const Duration(seconds: 10));
+      if (token != null) {
+        try {
+          debugPrint('Sending request to $_baseUrl/api/profile');
+          final response = await http.get(
+            Uri.parse('$_baseUrl/api/profile'),
+            headers: {'Authorization': 'Bearer $token'},
+          ).timeout(const Duration(seconds: 10));
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+          debugPrint('Response status: ${response.statusCode}');
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+            themeProvider.setDarkMode(data['isDarkMode'] ?? false);
 
-          // Đồng bộ isDarkMode từ server
-          themeProvider.setDarkMode(data['isDarkMode'] ?? false);
-
-          setState(() {
-            _isLoggedIn = true;
-            _token = token;
-            _isLoading = false;
-          });
-        } else {
+            setState(() {
+              _isLoggedIn = true;
+              _token = token;
+              _isLoading = false;
+            });
+          } else {
+            await prefs.remove('token');
+            setState(() {
+              _isLoggedIn = false;
+              _isLoading = false;
+            });
+          }
+        } catch (e) {
+          debugPrint('Network error: $e');
           await prefs.remove('token');
           setState(() {
             _isLoggedIn = false;
             _isLoading = false;
           });
         }
-      } catch (e) {
-        debugPrint('Error fetching profile: $e');
-        await prefs.remove('token');
+      } else {
+        debugPrint('No token found');
         setState(() {
-          _isLoggedIn = false;
           _isLoading = false;
         });
       }
-    } else {
+    } catch (e) {
+      debugPrint('SharedPreferences error: $e');
       setState(() {
         _isLoading = false;
       });
