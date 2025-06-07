@@ -4,8 +4,7 @@
   "description": "Backend for simulated email service",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "preinstall": "apt-get update && apt-get install -y python3 make g++ libsqlite3-dev"
+    "start": "node server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
