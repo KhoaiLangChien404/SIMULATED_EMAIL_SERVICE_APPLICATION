@@ -7,7 +7,8 @@ import 'compose_email_screen.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html;
+import 'dart:html' as html if (dart.library.html) 'dart:html';
+import 'package:open_file/open_file.dart';
 import 'dart:math' as math;
 
 class EmailDetailScreen extends StatefulWidget {
@@ -257,35 +258,44 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
 
       if (response.statusCode == 200) {
         final bytes = response.bodyBytes;
+        final fileName = originalFileName ?? filePath.split('/').last;
 
         if (kIsWeb) {
+          // Xử lý cho web
           final blob = html.Blob([bytes]);
           final url = html.Url.createObjectUrlFromBlob(blob);
           final anchor = html.AnchorElement(href: url)
-            ..setAttribute('download', originalFileName ?? filePath.split('/').last)
+            ..setAttribute('download', fileName)
             ..click();
           html.Url.revokeObjectUrl(url);
         } else {
+          // Xử lý cho Android/iOS
           final tempDir = await getTemporaryDirectory();
-          final fileName = originalFileName ?? filePath.split('/').last;
           final localFile = File('${tempDir.path}/$fileName');
           await localFile.writeAsBytes(bytes);
-          final uri = Uri.file(localFile.path);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else {
-            print('Could not launch $uri');
+
+          // Mở file bằng open_file
+          final result = await OpenFile.open(localFile.path);
+          if (result.type != ResultType.done) {
+            print('Không thể mở file: ${result.message}');
+            if (mounted) {
+              setState(() {
+                _errorMessage = 'Không thể mở file: ${result.message}';
+              });
+            }
           }
         }
       } else {
-        setState(() {
-          _errorMessage = 'Failed to download file: ${jsonDecode(response.body)['error'] ?? response.body}';
-        });
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'Tải file thất bại: ${jsonDecode(response.body)['error'] ?? response.body}';
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Error downloading file: $e';
+          _errorMessage = 'Lỗi khi tải file: $e';
         });
       }
     }
