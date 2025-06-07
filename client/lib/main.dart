@@ -46,6 +46,7 @@ class _CheckLoginState extends State<CheckLogin> {
   bool _isLoggedIn = false;
   String? _token;
   bool _isLoading = true;
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
 
   @override
   void initState() {
@@ -60,7 +61,7 @@ class _CheckLoginState extends State<CheckLogin> {
     if (token != null) {
       try {
         final response = await http.get(
-          Uri.parse('http://localhost:3000/api/profile'),
+          Uri.parse('$_baseUrl/api/profile'),
           headers: {'Authorization': 'Bearer $token'},
         ).timeout(const Duration(seconds: 10));
 

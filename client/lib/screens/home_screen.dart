@@ -30,7 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Set<String> _selectedLabels = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
   List<String> _labels = [];
   bool _autoAnswerEnabled = false;
   String _autoAnswerMessage = '';

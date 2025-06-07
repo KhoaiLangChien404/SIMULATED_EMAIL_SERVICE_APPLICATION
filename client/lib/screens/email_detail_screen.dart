@@ -3,13 +3,13 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'compose_email_screen.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html if (dart.library.html) 'dart:html';
+import 'package:universal_html/html.dart' as html;
+import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import 'dart:io';
 import 'dart:math' as math;
+import 'compose_email_screen.dart';
 
 class EmailDetailScreen extends StatefulWidget {
   final String token;
@@ -26,7 +26,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
   String _errorMessage = '';
   String? _pdfError;
   bool _isLoading = true;
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
   Map<String, String?> _localFilePaths = {};
   Map<String, String?> _originalFileNames = {};
   List<String> _availableLabels = [];
@@ -273,16 +273,11 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           final tempDir = await getTemporaryDirectory();
           final localFile = File('${tempDir.path}/$fileName');
           await localFile.writeAsBytes(bytes);
-
-          // Mở file bằng open_file
-          final result = await OpenFile.open(localFile.path);
-          if (result.type != ResultType.done) {
-            print('Không thể mở file: ${result.message}');
-            if (mounted) {
-              setState(() {
-                _errorMessage = 'Không thể mở file: ${result.message}';
-              });
-            }
+          final uri = Uri.file(localFile.path);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          } else {
+            print('Could not launch $uri');
           }
         }
       } else {

@@ -20,7 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _twoFaEnabled = false;
   String _error = '';
   bool _isLoading = false;
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
 
   Future<void> _login() async {
     if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
@@ -93,7 +93,7 @@ class _LoginScreenState extends State<LoginScreen> {
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Login'), // Thêm const cho Text
+          title: const Text('Login'),
           automaticallyImplyLeading: false,
         ),
         body: Padding(

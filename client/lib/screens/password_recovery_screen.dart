@@ -14,7 +14,7 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   String _message = '';
   bool _isLoading = false;
   // Replace with your machine's IP if testing on a device/emulator
-  final String _baseUrl = 'http://localhost:3000';
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
 
   Future<void> _recoverPassword() async {
     if (_phoneController.text.isEmpty || _newPasswordController.text.isEmpty) {
