@@ -11,16 +11,16 @@ class ComposeEmailScreen extends StatefulWidget {
   final Map<String, dynamic>? replyTo;
   final Map<String, dynamic>? forwardFrom;
   final Map<String, dynamic>? draft;
-  final int defaultFontSize; // Thêm tham số font size
-  final String defaultFontFamily; // Thêm tham số font family
+  final int defaultFontSize;
+  final String defaultFontFamily;
 
   const ComposeEmailScreen({
     required this.token,
     this.replyTo,
     this.forwardFrom,
     this.draft,
-    this.defaultFontSize = 12, // Giá trị mặc định
-    this.defaultFontFamily = 'Arial', // Giá trị mặc định
+    this.defaultFontSize = 12,
+    this.defaultFontFamily = 'Arial',
     super.key,
   });
 
@@ -47,18 +47,17 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
   @override
   void initState() {
     super.initState();
-    // Áp dụng font size và font family mặc định khi khởi tạo
     _applyDefaultFontStyle();
 
     if (widget.replyTo != null) {
       _toController.text = widget.replyTo!['senderPhone'] ?? '';
       _subjectController.text = 'Re: ${widget.replyTo!['subject']?.replaceAll('Re: ', '') ?? ''}';
-      _bodyController.document.insert(0, ''); // Initialize with empty Delta
+      _bodyController.document.insert(0, '');
     } else if (widget.forwardFrom != null) {
       _toController.text = '';
       _subjectController.text = 'Fwd: ${widget.forwardFrom!['subject']?.replaceAll('Fwd: ', '') ?? ''}';
       final forwardContent = '\n\n-- Forwarded Message --\nFrom: ${widget.forwardFrom!['senderPhone'] ?? ''}\nDate: ${widget.forwardFrom!['timestamp'] ?? ''}\nSubject: ${widget.forwardFrom!['subject'] ?? ''}\n\n${widget.forwardFrom!['body'] ?? ''}';
-      _bodyController.document.insert(0, forwardContent); // Insert forwarded content as plain text
+      _bodyController.document.insert(0, forwardContent);
     } else if (widget.draft != null) {
       _toController.text = widget.draft!['recipientPhone'] ?? '';
       _ccController.text = widget.draft!['cc'] ?? '';
@@ -66,17 +65,15 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
       _subjectController.text = widget.draft!['subject'] ?? '';
       String body = widget.draft!['body'] ?? '';
       try {
-        // Try parsing as JSON (for Quill Delta)
         final decoded = jsonDecode(body);
         if (decoded is Map<String, dynamic> || decoded is List<dynamic>) {
           _bodyController.document = quill.Document.fromJson(decoded);
         } else {
-          // If not valid JSON, treat as plain text
           _bodyController.document = quill.Document()..insert(0, body);
         }
       } catch (e) {
-        // If JSON parsing fails, treat as plain text
         _bodyController.document = quill.Document()..insert(0, body);
+        print('Body parsing error: $e');
       }
       if (widget.draft!['attachment'] != null) {
         _attachments.add(PlatformFile(
@@ -86,7 +83,7 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
           bytes: null,
         ));
       }
-      _draftId = widget.draft!['id']; // Save draftId for updates
+      _draftId = widget.draft!['id'];
     }
     _autosaveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _autosaveDraft());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,11 +91,9 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
     });
   }
 
-  // Hàm áp dụng font style mặc định
   void _applyDefaultFontStyle() {
     final delta = _bodyController.document.toDelta();
     if (delta.isEmpty) {
-      // Khi tài liệu trống, chèn một đoạn văn bản rỗng và áp dụng định dạng
       _bodyController.document.insert(0, '');
       _bodyController.formatText(
         0,
@@ -119,7 +114,6 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
         ),
       );
     } else {
-      // Áp dụng định dạng cho toàn bộ tài liệu
       _bodyController.formatText(
         0,
         _bodyController.document.length,
@@ -145,24 +139,39 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
     try {
       final result = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.any);
       if (result != null && result.files.isNotEmpty && mounted) {
-        setState(() => _attachments.addAll(result.files));
+        setState(() {
+          _attachments.addAll(result.files);
+        });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = 'Error picking file: $e');
+      if (mounted) {
+        setState(() {
+          _error = 'Error picking file: $e';
+        });
+        print('Attachment picking error: $e');
+      }
     }
   }
 
   Future<void> _sendEmail() async {
     if (_toController.text.isEmpty || _subjectController.text.isEmpty || _bodyController.document.toPlainText().isEmpty) {
       if (mounted) setState(() => _error = 'To, subject, and body are required');
+      print('Required fields missing');
       return;
     }
     final recipientExists = await _checkRecipient(_toController.text);
     if (!recipientExists) {
       if (mounted) setState(() => _error = 'Recipient phone number not found');
+      print('Recipient not found: ${_toController.text}');
       return;
     }
-    if (mounted) setState(() => {_isLoading = true, _error = ''});
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = '';
+      });
+      print('Sending email...');
+    }
     try {
       var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/send-email'));
       request.headers['Authorization'] = 'Bearer ${widget.token}';
@@ -185,15 +194,16 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
         if (_draftId != null) {
           await _deleteDraft(_draftId!);
         }
+        print('Email sent successfully');
         Navigator.pop(context);
       } else {
         final errorMsg = jsonDecode(response.body)['error'] ?? response.body;
-        if (mounted) setState(() => {_error = 'Send failed: $errorMsg', _isLoading = false});
-        print('Send email failed with status: ${response.statusCode}, body: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to send email: $errorMsg');
+        print('Send email failed: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
-      if (mounted) setState(() => {_error = 'Error: Failed to send. ${e.toString()}', _isLoading = false});
-      print('Send email exception: $e');
+      if (mounted) setState(() => _error = 'Error sending email: $e');
+      print('Error sending email: $e');
     }
   }
 
@@ -204,12 +214,12 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        print('Draft $draftId deleted after sending email');
+        print('Draft $draftId deleted successfully');
       } else {
-        print('Failed to delete draft $draftId: ${response.body}');
+        print('Failed to delete draft $draftId: ${jsonDecode(response.body)['error'] ?? response.body}');
       }
     } catch (e) {
-      print('Delete draft exception: $e');
+      print('Error deleting draft: $e');
     }
   }
 
@@ -218,17 +228,18 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/profile?phone=$phone'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
+      ).timeout(const Duration(seconds: 10));
       return response.statusCode == 200;
     } catch (e) {
-      print('Recipient check error: $e');
+      print('Error checking recipient: $e');
       return false;
     }
   }
 
   Future<void> _autosaveDraft() async {
     if (_toController.text.isEmpty && _subjectController.text.isEmpty && _bodyController.document.toPlainText().isEmpty && _attachments.isEmpty) {
-      return; // Don't autosave if all fields are empty
+      return;
+      print('Nothing to autosave');
     }
     try {
       var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/save-draft'));
@@ -248,21 +259,22 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
       }
       final streamedResponse = await request.send().timeout(const Duration(seconds: 10));
       final response = await http.Response.fromStream(streamedResponse);
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         final data = jsonDecode(response.body);
-        if (mounted) setState(() => _draftId = data['draftId']);
+        setState(() => _draftId = data['draftId']);
         print('Draft autosaved with ID: $_draftId');
       } else {
-        print('Autosave failed with status: ${response.statusCode}, body: ${response.body}');
+        print('Autosave failed: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
-      print('Autosave draft exception: $e');
+      print('Error autosaving draft: $e');
     }
   }
 
   Future<void> _saveDraft() async {
     if (_toController.text.isEmpty && _subjectController.text.isEmpty && _bodyController.document.toPlainText().isEmpty && _attachments.isEmpty) {
-      Navigator.pop(context); // Don't save draft if all fields are empty
+      Navigator.pop(context);
+      print('Empty draft, navigating back');
       return;
     }
     try {
@@ -284,14 +296,15 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
       final streamedResponse = await request.send().timeout(const Duration(seconds: 10));
       final response = await http.Response.fromStream(streamedResponse);
       if (response.statusCode == 200 && mounted) {
+        print('Draft saved successfully');
         Navigator.pop(context);
       } else {
-        if (mounted) setState(() => _error = 'Failed to save draft: ${response.body}');
-        print('Save draft failed with status: ${response.statusCode}, body: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to save draft: ${jsonDecode(response.body)['error'] ?? response.body}');
+        print('Save draft failed: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
-      if (mounted) setState(() => _error = 'Error: Failed to save draft. ${e.toString()}');
-      print('Save draft exception: $e');
+      if (mounted) setState(() => _error = 'Error saving draft: $e');
+      print('Error saving draft: $e');
     }
   }
 
@@ -310,7 +323,6 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Kiểm tra giá trị mặc định để tránh lỗi runtime
     final effectiveFontSize = widget.defaultFontSize > 0 ? widget.defaultFontSize.toDouble() : 12.0;
     final effectiveFontFamily = widget.defaultFontFamily.isNotEmpty ? widget.defaultFontFamily : 'Arial';
 
@@ -325,7 +337,7 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
         ),
         actions: [
           IconButton(icon: const Icon(Icons.save), tooltip: 'Save Draft', onPressed: _saveDraft),
-          IconButton(icon: const Icon(Icons.send), tooltip: 'Send Email', onPressed: _sendEmail),
+          IconButton(icon: const Icon(Icons.send), tooltip: 'Send', onPressed: _sendEmail),
         ],
       ),
       body: _isLoading

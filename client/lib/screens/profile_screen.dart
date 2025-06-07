@@ -25,12 +25,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _profilePicUrl;
   bool _twoFaEnabled = false;
   bool _autoAnswerEnabled = false;
+  bool _notificationsEnabled = true; // New field for notification toggle
   String _autoAnswerMessage = '';
   int _defaultFontSize = 12;
   String _defaultFontFamily = 'Arial';
   String _error = '';
   bool _isLoading = false;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://192.168.100.30:3000');
 
   @override
   void initState() {
@@ -54,6 +55,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profilePicUrl = data['profilePic'];
           _twoFaEnabled = data['twoFaEnabled'] == true || data['twoFaEnabled'] == 1;
           _autoAnswerEnabled = data['autoAnswerEnabled'] == true || data['autoAnswerEnabled'] == 1;
+          _notificationsEnabled = data['notificationsEnabled'] ?? true; // Fetch notification setting
           _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
           _autoAnswerController.text = _autoAnswerMessage;
           _defaultFontSize = data['defaultFontSize'] ?? 12;
@@ -112,6 +114,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       request.fields['name'] = _nameController.text;
       request.fields['twoFaEnabled'] = _twoFaEnabled.toString();
       request.fields['autoAnswerEnabled'] = _autoAnswerEnabled.toString();
+      request.fields['notificationsEnabled'] = _notificationsEnabled.toString(); // Save notification setting
       request.fields['autoAnswerMessage'] = _autoAnswerMessage;
       request.fields['defaultFontSize'] = _defaultFontSize.toString();
       request.fields['defaultFontFamily'] = _defaultFontFamily;
@@ -149,6 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'name': _nameController.text,
           'profilePic': updatedData['profilePic'],
           'autoAnswerEnabled': updatedData['autoAnswerEnabled'] == true || updatedData['autoAnswerEnabled'] == 1,
+          'notificationsEnabled': updatedData['notificationsEnabled'] ?? true, // Return notification setting
           'autoAnswerMessage': updatedData['autoAnswerMessage'] ?? '',
           'defaultFontSize': updatedData['defaultFontSize'] ?? 12,
           'defaultFontFamily': updatedData['defaultFontFamily'] ?? 'Arial',
@@ -193,7 +197,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')), // Thêm const cho Text
+      appBar: AppBar(title: const Text('Profile')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
@@ -236,6 +240,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       title: const Text('Enable Two-Step Verification'),
                       value: _twoFaEnabled,
                       onChanged: (value) => setState(() => _twoFaEnabled = value),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Enable Notifications'),
+                      value: _notificationsEnabled,
+                      onChanged: (value) => setState(() => _notificationsEnabled = value ?? false),
                     ),
                     SwitchListTile(
                       title: const Text('Enable Auto Answer Mode'),

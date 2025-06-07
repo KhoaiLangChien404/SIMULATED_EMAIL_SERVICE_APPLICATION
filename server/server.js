@@ -34,6 +34,15 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
   console.log('Connected to SQLite database');
   db.run('PRAGMA encoding = "UTF-8"');
 
+  // Migrate database to add notificationsEnabled column
+  db.run('ALTER TABLE users ADD COLUMN notificationsEnabled BOOLEAN DEFAULT 1', (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding notificationsEnabled column:', err);
+    } else {
+      console.log('Added notificationsEnabled column or it already exists');
+    }
+  });
+
   // Database schema creation
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -47,7 +56,8 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
       autoAnswerMessage TEXT DEFAULT '',
       defaultFontSize INTEGER DEFAULT 12,
       defaultFontFamily TEXT DEFAULT 'Arial',
-      isDarkMode BOOLEAN DEFAULT 0
+      isDarkMode BOOLEAN DEFAULT 0,
+      notificationsEnabled BOOLEAN DEFAULT 1
     )
   `);
 
@@ -136,8 +146,8 @@ app.post('/api/register', upload.single('profilePic'), async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     db.run(
-      'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled, autoAnswerEnabled, isDarkMode) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [phone, hashedPassword, name, profilePic, false, false, false],
+      'INSERT INTO users (phone, password, name, profilePic, twoFaEnabled, autoAnswerEnabled, isDarkMode, notificationsEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [phone, hashedPassword, name, profilePic, false, false, false, true],
       (err) => {
         if (err) {
           console.error('Registration error:', err);
@@ -214,7 +224,7 @@ app.post('/api/verify-2fa', authenticate, (req, res) => {
 // Profile
 app.get('/api/profile', authenticate, (req, res) => {
   db.get(
-    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
+    'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode, notificationsEnabled FROM users WHERE phone = ?',
     [req.user.phone],
     (err, user) => {
       if (err) {
@@ -232,13 +242,14 @@ app.get('/api/profile', authenticate, (req, res) => {
         defaultFontSize: user.defaultFontSize || 12,
         defaultFontFamily: user.defaultFontFamily || 'Arial',
         isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
+        notificationsEnabled: user.notificationsEnabled === 1 || user.notificationsEnabled === true
       });
     }
   );
 });
 
 app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, res) => {
-  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode } = req.body;
+  const { name, password, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode, notificationsEnabled } = req.body;
   const profilePic = req.file ? `/uploads/${req.file.filename}` : null;
   const updates = [];
   const values = [];
@@ -291,6 +302,10 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
     updates.push('isDarkMode = ?');
     values.push(isDarkMode === 'true' ? 1 : 0);
   }
+  if (notificationsEnabled !== undefined) {
+    updates.push('notificationsEnabled = ?');
+    values.push(notificationsEnabled === 'true' ? 1 : 0);
+  }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No updates provided' });
@@ -303,7 +318,7 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
       return res.status(400).json({ error: 'Update failed', details: err.message });
     }
     db.get(
-      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode FROM users WHERE phone = ?',
+      'SELECT phone, name, profilePic, twoFaEnabled, autoAnswerEnabled, autoAnswerMessage, defaultFontSize, defaultFontFamily, isDarkMode, notificationsEnabled FROM users WHERE phone = ?',
       [req.user.phone],
       (err, user) => {
         if (err) {
@@ -321,6 +336,7 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
           defaultFontSize: user.defaultFontSize || 12,
           defaultFontFamily: user.defaultFontFamily || 'Arial',
           isDarkMode: user.isDarkMode === 1 || user.isDarkMode === true,
+          notificationsEnabled: user.notificationsEnabled === 1 || user.notificationsEnabled === true
         });
       }
     );
@@ -336,7 +352,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
   }
 
   try {
-    db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage FROM users WHERE phone = ?', [recipientPhone], (err, recipient) => {
+    db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage, notificationsEnabled FROM users WHERE phone = ?', [recipientPhone], (err, recipient) => {
       if (err) {
         console.error('Recipient check error:', err);
         return res.status(500).json({ error: 'Server error' });
@@ -345,7 +361,6 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
         return res.status(400).json({ error: 'Recipient phone number not found' });
       }
 
-      // Use body as plain text directly
       db.run(
         'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
         [req.user.phone, recipientPhone, cc || '', bcc || '', subject, body],
@@ -356,7 +371,6 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
           }
           const emailId = this.lastID;
 
-          // Save attachments if any
           if (attachments.length > 0) {
             const attachmentData = attachments.map(file => ({
               emailId,
@@ -376,8 +390,7 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
             );
           }
 
-          // Check recipient's Auto Answer Mode
-          if (recipient.autoAnswerEnabled && recipient.autoAnswerMessage) {
+          if (recipient.autoAnswerEnabled && recipient.autoAnswerMessage && recipient.notificationsEnabled) {
             console.log(`Auto answering for recipient ${recipientPhone} with message: ${recipient.autoAnswerMessage}`);
             db.run(
               'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
@@ -385,7 +398,6 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
               (err) => {
                 if (err) {
                   console.error('Auto answer email insertion error:', err);
-                  // Do not return error to client as original email was sent successfully
                 }
               }
             );
@@ -419,7 +431,6 @@ app.get('/api/emails', authenticate, (req, res) => {
   let params = [];
   let conditions = [];
 
-  // Base query based on folder
   switch (folder.toLowerCase()) {
     case 'inbox':
       conditions.push('e.recipientPhone = ? AND e.isTrashed = 0');
@@ -441,30 +452,25 @@ app.get('/api/emails', authenticate, (req, res) => {
       return res.status(400).json({ error: 'Invalid folder' });
   }
 
-  // Add search condition
   if (search) {
     conditions.push('(LOWER(e.subject) LIKE ? OR LOWER(e.senderPhone) LIKE ? OR LOWER(e.recipientPhone) LIKE ? OR LOWER(e.body) LIKE ?)');
     params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  // Add "From me" condition
   if (fromMe) {
     conditions.push('e.senderPhone = ?');
     params.push(req.user.phone);
   }
 
-  // Add date range condition
   if (startDate && endDate) {
     conditions.push('e.timestamp BETWEEN ? AND ?');
     params.push(startDate, endDate);
   }
 
-  // Add hasAttachments condition
   if (hasAttachments) {
     conditions.push('EXISTS (SELECT 1 FROM attachments a WHERE a.emailId = e.id)');
   }
 
-  // Add labels condition
   const executeQuery = () => {
     query = `
       SELECT e.*,
@@ -480,7 +486,7 @@ app.get('/api/emails', authenticate, (req, res) => {
     db.all(query, params, (err, emails) => {
       if (err) {
         console.error('Database error:', err);
-        return res.status(400).json({ error: 'Failed to fetch emails', sqlError: err.message });
+        return res.status(500).json({ error: 'Failed to fetch emails', sqlError: err.message });
       }
       const result = emails.map(email => {
         const attachments = [];
@@ -642,7 +648,7 @@ app.post('/api/email-labels', authenticate, (req, res) => {
 // Serve file for download with original file name
 app.get('/api/download/:filePath', authenticate, (req, res) => {
   const filePath = decodeURIComponent(req.params.filePath);
-  const fullPath = path.join(__dirname, 'uploads', filePath.split('/').pop());
+  const fullPath = path.join(__dirname, 'Uploads', filePath.split('/').pop());
   db.get('SELECT originalFileName FROM attachments WHERE filePath = ?', [filePath], (err, attachment) => {
     if (err) {
       console.error('Attachment fetch error:', err);
@@ -669,9 +675,7 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
     return res.status(400).json({ error: 'At least one field is required for a draft' });
   }
   try {
-    // Use body as plain text directly, no JSON parsing
     const cleanedBody = body || '';
-
     db.run(
       'INSERT INTO drafts (senderPhone, recipientPhone, cc, bcc, subject, body, attachment) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [req.user.phone, recipientPhone || '', cc || '', bcc || '', subject || '', cleanedBody, attachment],
@@ -707,24 +711,20 @@ app.get('/api/drafts', authenticate, (req, res) => {
   let conditions = ['senderPhone = ?'];
   let params = [req.user.phone];
 
-  // Add search condition
   if (search) {
     conditions.push('(LOWER(subject) LIKE ? OR LOWER(recipientPhone) LIKE ? OR LOWER(body) LIKE ?)');
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  // Add date range condition
   if (startDate && endDate) {
     conditions.push('timestamp BETWEEN ? AND ?');
     params.push(startDate, endDate);
   }
 
-  // Add hasAttachments condition
   if (hasAttachments) {
     conditions.push('attachment IS NOT NULL AND attachment != ""');
   }
 
-  // Add labels condition (drafts do not support labels directly)
   if (labels.length > 0) {
     // Skip as drafts do not support labels
   }
@@ -820,7 +820,8 @@ app.post('/api/email-actions', authenticate, (req, res) => {
         }
         res.status(200).json({ success: true });
       });
-  });
+    }
+  );
 });
 
 // Get Available Labels
@@ -887,8 +888,8 @@ app.post('/api/labels', authenticate, (req, res) => {
 
 // Edit Label
 app.put('/api/labels', authenticate, (req, res) => {
-  const { oldLabel, newLabelnewLabel } = req.body;
-  if (!oldLabeloldLabel || !newLabelnewLabel) {
+  const { oldLabel, newLabel } = req.body;
+  if (!oldLabel || !newLabel) {
     return res.status(400).json({ error: 'oldLabel and newLabel are required' });
   }
 

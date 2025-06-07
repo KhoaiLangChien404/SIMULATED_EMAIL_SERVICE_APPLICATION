@@ -1,14 +1,17 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'profile_screen.dart';
 import 'compose_email_screen.dart';
 import 'email_detail_screen.dart';
 import 'login_screen.dart';
 import 'manage_labels_screen.dart';
 import 'theme_provider.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   final String token;
@@ -36,23 +39,29 @@ class _HomeScreenState extends State<HomeScreen> {
   String _autoAnswerMessage = '';
   int _defaultFontSize = 12;
   String _defaultFontFamily = 'Arial';
-
-  // Advanced Search Filters
   bool _fromMe = false;
   DateTimeRange? _dateRange;
   bool _hasAttachments = false;
   bool _showAdvancedSearch = false;
-
-  // Track read status locally to prevent overwriting
   Map<int, bool> _emailReadStatus = {};
+  int _unreadInboxCount = 0;
+  Timer? _pollingTimer;
+  FlutterLocalNotificationsPlugin? _notificationsPlugin;
+  bool _notificationsEnabled = true; // Added from new code
 
   @override
   void initState() {
     super.initState();
+    _loadNotificationPreference(); // Load notification setting on init
+    if (!kIsWeb) {
+      _notificationsPlugin = FlutterLocalNotificationsPlugin();
+      _initializeNotifications();
+    }
     _loadViewMode();
     _fetchProfile();
     _fetchEmails();
     _fetchLabels();
+    _startPolling();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
@@ -64,6 +73,117 @@ class _HomeScreenState extends State<HomeScreen> {
         _fetchEmails();
       }
     });
+  }
+
+  Future<void> _loadNotificationPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _notificationsEnabled = prefs.getBool('notificationsEnabled') ?? true;
+    });
+  }
+
+  Future<void> _initializeNotifications() async {
+    if (kIsWeb || _notificationsPlugin == null) return;
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    final InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+    await _notificationsPlugin!.initialize(initializationSettings);
+  }
+
+  Future<void> _showNotification(Map<String, dynamic> email) async {
+    if (!_notificationsEnabled) return; // Skip if notifications are disabled
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'New Email from ${email['senderPhone'] ?? 'Unknown'}: ${email['subject'] ?? 'No Subject'}',
+          ),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'View',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => EmailDetailScreen(
+                    emailId: email['id'],
+                    token: widget.token,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } else if (_notificationsPlugin != null) {
+      const AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        'new_email_channel',
+        'New Email Notifications',
+        channelDescription: 'Notifications for new emails',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+      );
+      const NotificationDetails platformChannelSpecifics =
+          NotificationDetails(android: androidPlatformChannelSpecifics);
+      await _notificationsPlugin!.show(
+        email['id'] as int,
+        'New Email from ${email['senderPhone'] ?? 'Unknown'}',
+        email['subject'] ?? 'No Subject',
+        platformChannelSpecifics,
+        payload: jsonEncode({
+          'sender': email['senderPhone'] ?? 'Unknown',
+          'subject': email['subject'] ?? 'No Subject',
+          'timestamp': email['timestamp'] ?? DateTime.now().toIso8601String(),
+        }),
+      );
+    }
+  }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_currentFolder == 'inbox') {
+        _checkForNewEmails();
+      }
+    });
+  }
+
+  Future<void> _checkForNewEmails() async {
+    try {
+      final uri = Uri.parse('$_baseUrl/api/emails?folder=inbox');
+      final response = await http.get(
+        uri,
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      ).timeout(const Duration(seconds: 10));
+      print('Polling emails response status: ${response.statusCode}');
+      if (response.statusCode == 200 && mounted) {
+        final List<dynamic> fetchedEmails = jsonDecode(response.body);
+        final newEmails = fetchedEmails.map((e) => Map<String, dynamic>.from(e)).toList();
+        int newUnreadCount = 0;
+        for (var email in newEmails) {
+          final emailId = email['id'] as int;
+          if (!_emails.any((e) => e['id'] == emailId)) {
+            if (!(email['isRead'] == 1 || email['isRead'] == true)) {
+              newUnreadCount++;
+              await _showNotification(email);
+            }
+          }
+        }
+        if (newUnreadCount > 0) {
+          setState(() {
+            _unreadInboxCount += newUnreadCount;
+            _emails = newEmails;
+            _hoverStates = {for (var email in _emails) email['id'] as int: false};
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error polling emails: $e');
+      print('Error polling emails: $e');
+    }
   }
 
   Future<void> _loadViewMode() async {
@@ -106,27 +226,28 @@ class _HomeScreenState extends State<HomeScreen> {
       ).timeout(const Duration(seconds: 10));
       print('Emails response status: ${response.statusCode}');
       print('Emails response body: ${response.body}');
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         final List<dynamic> fetchedEmails = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
-            _emails = _emails.map((email) {
-              final emailId = email['id'] as int;
-              email['isRead'] = _emailReadStatus.containsKey(emailId)
-                  ? _emailReadStatus[emailId]!
-                  : (email['isRead'] == 1 || email['isRead'] == true);
-              email['isStarred'] = email['isStarred'] == 1 || email['isStarred'] == true;
-              email['isTrashed'] = email['isTrashed'] == 1 || email['isTrashed'] == true;
-              return email;
-            }).toList();
-            _drafts = [];
-            _error = _emails.isEmpty ? 'No emails found' : '';
-            _hoverStates = {for (var email in _emails) email['id'] as int: false};
-          });
-        }
+        setState(() {
+          _emails = fetchedEmails.map((email) => Map<String, dynamic>.from(email)).toList();
+          _emails = _emails.map((email) {
+            final emailId = email['id'] as int;
+            email['isRead'] = _emailReadStatus.containsKey(emailId)
+                ? _emailReadStatus[emailId]!
+                : (email['isRead'] == 1 || email['isRead'] == true);
+            email['isStarred'] = email['isStarred'] == 1 || email['isStarred'] == true;
+            email['isTrashed'] = email['isTrashed'] == 1 || email['isTrashed'] == true;
+            return email;
+          }).toList();
+          _drafts = [];
+          _error = _emails.isEmpty ? 'No emails found' : '';
+          _hoverStates = {for (var email in _emails) email['id'] as int: false};
+          if (_currentFolder == 'inbox') {
+            _unreadInboxCount = _emails.where((e) => !(e['isRead'] as bool)).length;
+          }
+        });
       } else {
-        if (mounted) setState(() => _error = 'Failed to fetch emails: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to fetch emails: ${jsonDecode(response.body)['error'] ?? response.body}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error fetching emails: $e');
@@ -153,18 +274,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ).timeout(const Duration(seconds: 10));
       print('Drafts response status: ${response.statusCode}');
       print('Drafts response body: ${response.body}');
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         final List<dynamic> fetchedDrafts = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _drafts = fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
-            _emails = [];
-            _error = _drafts.isEmpty ? 'No drafts found' : '';
-            _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
-          });
-        }
+        setState(() {
+          _drafts = fetchedDrafts.map((draft) => Map<String, dynamic>.from(draft)).toList();
+          _emails = [];
+          _error = _drafts.isEmpty ? 'No drafts found' : '';
+          _hoverStates = {for (var draft in _drafts) draft['id'] as int: false};
+        });
       } else {
-        if (mounted) setState(() => _error = 'Failed to fetch drafts: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to fetch drafts: ${jsonDecode(response.body)['error'] ?? response.body}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error fetching drafts: $e');
@@ -177,20 +296,19 @@ class _HomeScreenState extends State<HomeScreen> {
         Uri.parse('$_baseUrl/api/profile'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
+      print('Profile response status: ${response.statusCode}');
+      if (response.statusCode == 200 && mounted) {
         final data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _userName = data['name'] ?? 'User';
-            _profilePicUrl = data['profilePic'];
-            _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
-            _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
-            _defaultFontSize = data['defaultFontSize'] ?? 12;
-            _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
-          });
-        }
+        setState(() {
+          _userName = data['name'] ?? 'User';
+          _profilePicUrl = data['profilePic'];
+          _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
+          _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
+          _defaultFontSize = data['defaultFontSize'] ?? 12;
+          _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
+        });
       } else {
-        if (mounted) setState(() => _error = 'Failed to fetch profile: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to fetch profile: ${jsonDecode(response.body)['error'] ?? response.body}');
         print('Fetch profile failed with status: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
@@ -205,16 +323,14 @@ class _HomeScreenState extends State<HomeScreen> {
         Uri.parse('$_baseUrl/api/labels'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         final data = jsonDecode(response.body) as List<dynamic>;
-        if (mounted) {
-          setState(() {
-            _labels = data.cast<String>();
-            _selectedLabels.removeWhere((label) => !_labels.contains(label));
-          });
-        }
+        setState(() {
+          _labels = data.cast<String>();
+          _selectedLabels.removeWhere((label) => !_labels.contains(label));
+        });
       } else {
-        if (mounted) setState(() => _error = 'Failed to fetch labels: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to fetch labels: ${jsonDecode(response.body)['error'] ?? response.body}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error fetching labels: $e');
@@ -228,10 +344,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Uri.parse('$_baseUrl/api/delete-draft/$itemId'),
           headers: {'Authorization': 'Bearer ${widget.token}'},
         ).timeout(const Duration(seconds: 10));
-        if (response.statusCode == 200) {
+        if (response.statusCode == 200 && mounted) {
           _fetchDrafts();
         } else {
-          if (mounted) setState(() => _error = 'Failed to delete draft: ${response.body}');
+          if (mounted) setState(() => _error = 'Failed to delete draft: ${jsonDecode(response.body)['error'] ?? response.body}');
           print('Delete draft failed: ${response.statusCode}, body: ${response.body}');
         }
         return;
@@ -252,14 +368,19 @@ class _HomeScreenState extends State<HomeScreen> {
         }),
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         if (_currentFolder == 'draft') {
           _fetchDrafts();
         } else {
           _fetchEmails();
+          if (action == 'read' && !value) {
+            setState(() => _unreadInboxCount++);
+          } else if (action == 'read' && value) {
+            setState(() => _unreadInboxCount = _unreadInboxCount > 0 ? _unreadInboxCount - 1 : 0);
+          }
         }
       } else {
-        if (mounted) setState(() => _error = 'Failed to update action: ${response.body}');
+        if (mounted) setState(() => _error = 'Failed to update action: ${jsonDecode(response.body)['error'] ?? response.body}');
         print('Update action failed: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
@@ -275,6 +396,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final emailIndex = _emails.indexWhere((email) => email['id'] == emailId);
         if (emailIndex != -1) {
           _emails[emailIndex]['isRead'] = isRead;
+          if (_currentFolder == 'inbox') {
+            if (isRead) {
+              _unreadInboxCount = _unreadInboxCount > 0 ? _unreadInboxCount - 1 : 0;
+            } else {
+              _unreadInboxCount++;
+            }
+          }
         }
       });
     }
@@ -312,8 +440,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
         _defaultFontSize = result['defaultFontSize'] ?? 12;
         _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial';
+        _notificationsEnabled = result['notificationsEnabled'] ?? true; // Update from profile
+        _saveNotificationPreference(); // Save updated preference
       });
     }
+  }
+
+  Future<void> _saveNotificationPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notificationsEnabled', _notificationsEnabled);
   }
 
   void _switchFolder(String folder) {
@@ -448,6 +583,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _pollingTimer?.cancel();
     super.dispose();
   }
 
@@ -543,7 +679,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 16),
                     ),
                     Text(
-                      'Current Time: 01:54 AM +07, Saturday, June 07, 2025',
+                      'Current Time: ${TimeOfDay.now().format(context)} ${DateTime.now().toLocal().timeZoneName}, ${DateTime.now().toLocal().toString().split(' ')[0]}',
                       style: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.white70, fontSize: 12),
                     ),
                   ],
@@ -551,7 +687,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.inbox),
-                title: const Text('Inbox'),
+                title: Row(
+                  children: [
+                    const Text('Inbox'),
+                    if (_unreadInboxCount > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Chip(
+                          label: Text(
+                            '$_unreadInboxCount',
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                          backgroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                        ),
+                      ),
+                  ],
+                ),
                 selected: _currentFolder == 'inbox',
                 onTap: () {
                   _switchFolder('inbox');
@@ -695,10 +847,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Center(
                       child: Text(
                         _error,
-                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[200] : Colors.red),
+                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[400] : Colors.red),
                       ),
                     )
-                  : (_searchQuery.isNotEmpty && (_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft'))
+                  : (_searchQuery.isNotEmpty &&
+                          ((_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft')))
                       ? const Center(child: Text('Not found'))
                       : (_emails.isEmpty && _drafts.isEmpty)
                           ? const Center(child: CircularProgressIndicator())
@@ -768,7 +921,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     child: Container(
                                       color: _currentFolder == 'draft'
                                           ? Colors.grey[100]
-                                          : (isRead ? Colors.grey[200] : Colors.grey[50]),
+                                          : (isRead ? Colors.grey[200] : Colors.white),
                                       child: ListTile(
                                         leading: Tooltip(
                                           message: isStarred ? 'starred' : 'not starred',
@@ -777,8 +930,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                             child: IconButton(
                                               icon: Icon(
                                                 isStarred ? Icons.star : Icons.star_border,
-                                                color: isStarred ? Colors.yellow[700] : null,
-                                                size: 20,
+                                                color: isStarred ? Colors.yellow[600] : Colors.grey[400],
+                                                size: 24,
                                               ),
                                               onPressed: _currentFolder != 'draft'
                                                   ? () {
@@ -788,7 +941,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     }
                                                   : null,
                                               splashRadius: 20,
-                                              iconSize: 20,
+                                              iconSize: 24,
                                               padding: const EdgeInsets.all(4),
                                               constraints: const BoxConstraints(),
                                               style: IconButton.styleFrom(
@@ -855,11 +1008,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Tooltip(
-                                                    message: isRead ? 'mark as unread' : 'mark as read',
+                                                    message: isRead ? 'Mark as unread' : 'Mark as read',
                                                     child: IconButton(
                                                       icon: Icon(
                                                         isRead ? Icons.mail : Icons.mail_outline,
-                                                        size: 20,
+                                                        size: 24,
                                                       ),
                                                       onPressed: _currentFolder != 'draft'
                                                           ? () {
@@ -868,12 +1021,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                                             }
                                                           : null,
                                                       splashRadius: 20,
-                                                      iconSize: 20,
+                                                      iconSize: 24,
                                                       padding: const EdgeInsets.all(4),
                                                       constraints: const BoxConstraints(),
                                                       style: IconButton.styleFrom(
                                                         side: BorderSide(
-                                                          color: Colors.grey[700]!,
+                                                          color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
                                                           width: 1,
                                                           style: BorderStyle.solid,
                                                         ),
@@ -881,19 +1034,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     ),
                                                   ),
                                                   Tooltip(
-                                                    message: 'delete',
+                                                    message: 'Delete',
                                                     child: IconButton(
-                                                      icon: const Icon(Icons.delete, size: 20),
+                                                      icon: const Icon(Icons.delete, size: 24),
                                                       onPressed: () {
                                                         _updateAction(itemId, 'trash', true);
                                                       },
                                                       splashRadius: 20,
-                                                      iconSize: 20,
+                                                      iconSize: 24,
                                                       padding: const EdgeInsets.all(4),
                                                       constraints: const BoxConstraints(),
                                                       style: IconButton.styleFrom(
                                                         side: BorderSide(
-                                                          color: Colors.grey[700]!,
+                                                          color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
                                                           width: 1,
                                                           style: BorderStyle.solid,
                                                         ),

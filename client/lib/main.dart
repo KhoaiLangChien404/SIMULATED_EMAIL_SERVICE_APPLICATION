@@ -3,18 +3,31 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/theme_provider.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb) {
+    await _requestNotificationPermission();
+  }
   runApp(
     ChangeNotifierProvider(
       create: (_) => ThemeProvider(),
       child: const EmailApp(),
     ),
   );
+}
+
+Future<void> _requestNotificationPermission() async {
+  if (await Permission.notification.isDenied) {
+    await Permission.notification.request();
+  }
 }
 
 class EmailApp extends StatelessWidget {
@@ -28,7 +41,7 @@ class EmailApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           title: 'Email Service',
           theme: themeProvider.themeData,
-          home: CheckLogin(),
+          home: const CheckLogin(),
         );
       },
     );
@@ -55,11 +68,11 @@ class _CheckLoginState extends State<CheckLogin> {
   }
 
   Future<void> _checkLoginStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
 
-    if (token != null) {
-      try {
+      if (token != null) {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/profile'),
           headers: {'Authorization': 'Bearer $token'},
@@ -75,24 +88,16 @@ class _CheckLoginState extends State<CheckLogin> {
           setState(() {
             _isLoggedIn = true;
             _token = token;
-            _isLoading = false;
           });
         } else {
           await prefs.remove('token');
-          setState(() {
-            _isLoggedIn = false;
-            _isLoading = false;
-          });
         }
-      } catch (e) {
-        debugPrint('Error fetching profile: $e');
-        await prefs.remove('token');
-        setState(() {
-          _isLoggedIn = false;
-          _isLoading = false;
-        });
       }
-    } else {
+    } catch (e) {
+      debugPrint('Error fetching profile: $e');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('token');
+    } finally {
       setState(() {
         _isLoading = false;
       });
@@ -107,6 +112,6 @@ class _CheckLoginState extends State<CheckLogin> {
       );
     }
 
-    return _isLoggedIn ? HomeScreen(token: _token!) : LoginScreen();
+    return _isLoggedIn ? HomeScreen(token: _token!) : const LoginScreen();
   }
 }
