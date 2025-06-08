@@ -38,7 +38,7 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
   String _error = '';
   bool _isLoading = false;
   int? _draftId;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-1-9jhr.onrender.com');
   Timer? _autosaveTimer;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();

@@ -26,7 +26,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
   String _errorMessage = '';
   String? _pdfError;
   bool _isLoading = true;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-1-9jhr.onrender.com');
   Map<String, String?> _localFilePaths = {};
   Map<String, String?> _originalFileNames = {};
   List<String> _availableLabels = [];
