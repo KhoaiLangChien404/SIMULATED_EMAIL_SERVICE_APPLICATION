@@ -1,5 +1,5 @@
-# Sử dụng image Flutter chính thức hỗ trợ Dart 3.7.2
-FROM flutter:latest AS builder
+# Sử dụng image Flutter từ Google hỗ trợ Dart 3.7.2
+FROM google/flutter-runtime:stable AS builder
 
 # Tạo user không phải root và sửa quyền thư mục Flutter SDK
 RUN useradd -m flutteruser \
