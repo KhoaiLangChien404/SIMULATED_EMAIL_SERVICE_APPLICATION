@@ -4,13 +4,20 @@ FROM cirrusci/flutter:stable AS builder
 # Tắt analytics
 RUN dart --disable-analytics
 
-# Cài đặt Dart SDK 3.7.2 thủ công
+# Cài đặt Dart SDK 3.7.2 thủ công và thay thế SDK cũ
 RUN wget -qO dart-sdk.zip https://storage.googleapis.com/dart-archive/channels/stable/release/3.7.2/sdk/dartsdk-linux-x64-release.zip && \
     unzip -q dart-sdk.zip -d /usr/local/ && \
     rm dart-sdk.zip && \
-    ln -s /usr/local/dart-sdk/bin/dart /usr/local/bin/dart && \
-    ln -s /usr/local/dart-sdk/bin/pub /usr/local/bin/pub && \
-    ln -s /usr/local/dart-sdk/bin/flutter /usr/local/bin/flutter
+    mv /usr/local/dart-sdk /usr/local/dart-sdk-3.7.2 && \
+    rm -rf /sdks/flutter/bin/cache/dart-sdk && \
+    ln -sf /usr/local/dart-sdk-3.7.2 /sdks/flutter/bin/cache/dart-sdk && \
+    ln -sf /usr/local/dart-sdk-3.7.2/bin/dart /usr/local/bin/dart && \
+    ln -sf /usr/local/dart-sdk-3.7.2/bin/pub /usr/local/bin/pub
+
+# Cập nhật Flutter để sử dụng Dart SDK mới
+RUN flutter config --no-analytics && \
+    flutter precache && \
+    flutter --version
 
 # Tạo user không phải root và sửa quyền thư mục Flutter SDK
 RUN useradd -m flutteruser \
