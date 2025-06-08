@@ -10,7 +10,8 @@ const fs = require('fs');
 const app = express();
 app.use(cors({
   // origin: 'https://simulated-email-service-application.onrender.com', // Thay bằng URL của client sau khi triển khai
-  origin: '*', // Thay bằng URL của client sau khi triển khai
+  // origin: '*', // Thay bằng URL của client sau khi triển khai
+  origin: 'https://simulated-email-client.onrender.com', // Thay bằng URL của client sau khi triển khai
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));

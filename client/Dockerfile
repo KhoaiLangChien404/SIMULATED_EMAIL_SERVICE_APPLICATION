@@ -1,13 +1,20 @@
 # Sử dụng image Flutter chính thức để build
 FROM cirrusci/flutter:stable AS builder
 
-# Tạo user không phải root để tránh lỗi quyền
-RUN useradd -m flutteruser
+# Tạo user không phải root và sửa quyền thư mục Flutter SDK
+RUN useradd -m flutteruser \
+    && chown -R flutteruser:flutteruser /sdks/flutter \
+    && chmod -R u+rw /sdks/flutter
+
+# Chuyển sang user flutteruser
 USER flutteruser
 WORKDIR /home/flutteruser/app
 
-# Sao chép mã nguồn vào container
-COPY --chown=flutteruser:flutteruser . .
+# Thêm thư mục Flutter vào danh sách an toàn của Git
+RUN git config --global --add safe.directory /sdks/flutter
+
+# Sao chép mã nguồn từ thư mục client vào container
+COPY --chown=flutteruser:flutteruser client/ .
 
 # Cài đặt dependencies và build ứng dụng web
 RUN flutter pub get
