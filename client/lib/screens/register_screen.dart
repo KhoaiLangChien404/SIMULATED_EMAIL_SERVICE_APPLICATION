@@ -14,7 +14,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _error = '';
   bool _isLoading = false;
   // Replace with your machine's IP if testing on a device/emulator
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-1.onrender.com');
 
   Future<void> _register() async {
     // Input validation

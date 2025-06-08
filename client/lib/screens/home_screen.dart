@@ -30,7 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Set<String> _selectedLabels = {};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-1.onrender.com');
   List<String> _labels = [];
   bool _autoAnswerEnabled = false;
   String _autoAnswerMessage = '';
@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTimeRange? _dateRange;
   bool _hasAttachments = false;
   bool _showAdvancedSearch = false;
+  final String _deploy = 'https://simulated-email-service-application-1.onrender.com';
 
   // Track read status locally to prevent overwriting
   Map<int, bool> _emailReadStatus = {};
