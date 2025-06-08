@@ -1,9 +1,15 @@
 # Sử dụng image Flutter từ Cirrus CI
 FROM cirrusci/flutter:stable AS builder
 
-# Cập nhật Dart SDK thủ công nếu cần
+# Tắt analytics
 RUN dart --disable-analytics
-RUN dart pub global activate dart 3.7.2
+
+# Cài đặt Dart SDK 3.7.2 thủ công
+RUN wget -qO- https://storage.googleapis.com/dart-archive/channels/stable/release/3.7.2/sdk/dartsdk-linux-x64-release.zip | \
+    unzip -q -d /usr/local/ && \
+    ln -s /usr/local/dart-sdk/bin/dart /usr/local/bin/dart && \
+    ln -s /usr/local/dart-sdk/bin/pub /usr/local/bin/pub && \
+    ln -s /usr/local/dart-sdk/bin/flutter /usr/local/bin/flutter
 
 # Tạo user không phải root và sửa quyền thư mục Flutter SDK
 RUN useradd -m flutteruser \
