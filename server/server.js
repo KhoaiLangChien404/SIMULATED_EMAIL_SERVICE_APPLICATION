@@ -8,7 +8,13 @@ const cors = require('cors');
 const fs = require('fs');
 
 const app = express();
-app.use(cors());
+
+// CORS configuration
+const corsOptions = {
+  origin: 'https://simulated-email-client123.web.app',
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Ensure uploads directory exists
