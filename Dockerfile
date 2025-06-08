@@ -14,9 +14,9 @@ RUN wget -qO dart-sdk.zip https://storage.googleapis.com/dart-archive/channels/s
     ln -sf /usr/local/dart-sdk-3.7.2/bin/dart /usr/local/bin/dart && \
     ln -sf /usr/local/dart-sdk-3.7.2/bin/pub /usr/local/bin/pub
 
-# Cập nhật Flutter để sử dụng Dart SDK mới
+# Tối ưu hóa flutter precache (chỉ tải web)
 RUN flutter config --no-analytics && \
-    flutter precache && \
+    flutter precache --web && \
     flutter --version
 
 # Tạo user không phải root và sửa quyền thư mục Flutter SDK
@@ -40,7 +40,7 @@ COPY --chown=flutteruser:flutteruser client/ .
 # Cài đặt dependencies và build ứng dụng web
 RUN flutter pub get
 RUN flutter config --enable-web
-RUN flutter build web --release
+RUN flutter build web --release --no-tree-shake-icons
 
 # Sử dụng Nginx để phục vụ các file tĩnh
 FROM nginx:alpine
