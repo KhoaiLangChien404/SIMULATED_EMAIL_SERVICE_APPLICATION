@@ -13,6 +13,9 @@ WORKDIR /home/flutteruser/app
 # Thêm thư mục Flutter vào danh sách an toàn của Git
 RUN git config --global --add safe.directory /sdks/flutter
 
+# Kiểm tra nội dung thư mục hiện tại (debug)
+RUN ls -la
+
 # Sao chép mã nguồn từ thư mục client vào container
 COPY --chown=flutteruser:flutteruser client/ .
 
