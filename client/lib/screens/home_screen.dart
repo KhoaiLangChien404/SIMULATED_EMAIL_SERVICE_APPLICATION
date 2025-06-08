@@ -47,12 +47,12 @@ class _HomeScreenState extends State<HomeScreen> {
   int _unreadInboxCount = 0;
   Timer? _pollingTimer;
   FlutterLocalNotificationsPlugin? _notificationsPlugin;
-  bool _notificationsEnabled = true; // Added from new code
+  bool _notificationsEnabled = true;
 
   @override
   void initState() {
     super.initState();
-    _loadNotificationPreference(); // Load notification setting on init
+    _loadNotificationPreference();
     if (!kIsWeb) {
       _notificationsPlugin = FlutterLocalNotificationsPlugin();
       _initializeNotifications();
@@ -65,7 +65,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
-        print('Search query updated: $_searchQuery');
       });
       if (_currentFolder == 'draft') {
         _fetchDrafts();
@@ -93,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showNotification(Map<String, dynamic> email) async {
-    if (!_notificationsEnabled) return; // Skip if notifications are disabled
+    if (!_notificationsEnabled) return;
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -158,7 +157,6 @@ class _HomeScreenState extends State<HomeScreen> {
         uri,
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      print('Polling emails response status: ${response.statusCode}');
       if (response.statusCode == 200 && mounted) {
         final List<dynamic> fetchedEmails = jsonDecode(response.body);
         final newEmails = fetchedEmails.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -182,7 +180,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error polling emails: $e');
-      print('Error polling emails: $e');
     }
   }
 
@@ -219,13 +216,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final uri = Uri.parse('$_baseUrl/api/emails?folder=$_currentFolder$queryParams');
-      print('Fetching emails with URL: $uri');
       final response = await http.get(
         uri,
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      print('Emails response status: ${response.statusCode}');
-      print('Emails response body: ${response.body}');
       if (response.statusCode == 200 && mounted) {
         final List<dynamic> fetchedEmails = jsonDecode(response.body);
         setState(() {
@@ -234,9 +228,9 @@ class _HomeScreenState extends State<HomeScreen> {
             final emailId = email['id'] as int;
             email['isRead'] = _emailReadStatus.containsKey(emailId)
                 ? _emailReadStatus[emailId]!
-                : (email['isRead'] == 1 || email['isRead'] == true);
-            email['isStarred'] = email['isStarred'] == 1 || email['isStarred'] == true;
-            email['isTrashed'] = email['isTrashed'] == 1 || email['isTrashed'] == true;
+                : (email['isRead'] == true || email['isRead'] == 1);
+            email['isStarred'] = email['isStarred'] == true || email['isStarred'] == 1;
+            email['isTrashed'] = email['isTrashed'] == true || email['isTrashed'] == 1;
             return email;
           }).toList();
           _drafts = [];
@@ -267,13 +261,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final uri = Uri.parse('$_baseUrl/api/drafts$queryParams');
-      print('Fetching drafts with URL: $uri');
       final response = await http.get(
         uri,
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      print('Drafts response status: ${response.statusCode}');
-      print('Drafts response body: ${response.body}');
       if (response.statusCode == 200 && mounted) {
         final List<dynamic> fetchedDrafts = jsonDecode(response.body);
         setState(() {
@@ -296,24 +287,21 @@ class _HomeScreenState extends State<HomeScreen> {
         Uri.parse('$_baseUrl/api/profile'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       ).timeout(const Duration(seconds: 10));
-      print('Profile response status: ${response.statusCode}');
       if (response.statusCode == 200 && mounted) {
         final data = jsonDecode(response.body);
         setState(() {
           _userName = data['name'] ?? 'User';
           _profilePicUrl = data['profilePic'];
-          _autoAnswerEnabled = data['autoAnswerEnabled'] == 1 || data['autoAnswerEnabled'] == true;
+          _autoAnswerEnabled = data['autoAnswerEnabled'] == true || data['autoAnswerEnabled'] == 1;
           _autoAnswerMessage = data['autoAnswerMessage'] ?? '';
           _defaultFontSize = data['defaultFontSize'] ?? 12;
           _defaultFontFamily = data['defaultFontFamily'] ?? 'Arial';
         });
       } else {
         if (mounted) setState(() => _error = 'Failed to fetch profile: ${jsonDecode(response.body)['error'] ?? response.body}');
-        print('Fetch profile failed with status: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error fetching profile: $e');
-      print('Fetch profile exception: $e');
     }
   }
 
@@ -348,7 +336,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _fetchDrafts();
         } else {
           if (mounted) setState(() => _error = 'Failed to delete draft: ${jsonDecode(response.body)['error'] ?? response.body}');
-          print('Delete draft failed: ${response.statusCode}, body: ${response.body}');
         }
         return;
       }
@@ -361,7 +348,6 @@ class _HomeScreenState extends State<HomeScreen> {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'draftId': itemId,
           'emailId': itemId,
           'action': action,
           'value': value,
@@ -381,11 +367,9 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       } else {
         if (mounted) setState(() => _error = 'Failed to update action: ${jsonDecode(response.body)['error'] ?? response.body}');
-        print('Update action failed: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error updating action: $e');
-      print('Update action exception: $e');
     }
   }
 
@@ -440,8 +424,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _autoAnswerMessage = result['autoAnswerMessage'] ?? _autoAnswerMessage;
         _defaultFontSize = result['defaultFontSize'] ?? 12;
         _defaultFontFamily = result['defaultFontFamily'] ?? 'Arial';
-        _notificationsEnabled = result['notificationsEnabled'] ?? true; // Update from profile
-        _saveNotificationPreference(); // Save updated preference
+        _notificationsEnabled = result['notificationsEnabled'] ?? true;
+        _saveNotificationPreference();
       });
     }
   }
@@ -595,56 +579,54 @@ class _HomeScreenState extends State<HomeScreen> {
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-          title: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                    if (_currentFolder == 'draft') {
-                      _fetchDrafts();
-                    } else {
-                      _fetchEmails();
-                    }
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search emails...',
-                    border: InputBorder.none,
-                    hintStyle: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.black54),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(Icons.clear, color: themeProvider.isDarkMode ? Colors.white : Colors.black),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                              if (_currentFolder == 'draft') {
-                                _fetchDrafts();
-                              } else {
-                                _fetchEmails();
-                              }
-                            },
-                          )
-                        : null,
-                  ),
-                  style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
-                ),
+          elevation: 0,
+          backgroundColor: themeProvider.isDarkMode ? Colors.grey.shade900 : Colors.white,
+          title: Container(
+            decoration: BoxDecoration(
+              color: themeProvider.isDarkMode ? Colors.grey.shade800 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Tìm kiếm email...',
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                prefixIcon: Icon(Icons.search, color: Colors.grey.shade600),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(Icons.clear, color: Colors.grey.shade600),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchQuery = '';
+                          });
+                          if (_currentFolder == 'draft') {
+                            _fetchDrafts();
+                          } else {
+                            _fetchEmails();
+                          }
+                        },
+                      )
+                    : IconButton(
+                        icon: Icon(Icons.filter_list, color: Colors.grey.shade600),
+                        onPressed: _showAdvancedSearchPanel,
+                      ),
               ),
-              IconButton(
-                icon: Icon(Icons.filter_alt, color: themeProvider.isDarkMode ? Colors.white : Colors.black),
-                onPressed: _showAdvancedSearchPanel,
-                tooltip: 'Advanced Search',
+              style: TextStyle(
+                color: themeProvider.isDarkMode ? Colors.white : Colors.black,
+                fontFamily: _defaultFontFamily,
+                fontSize: _defaultFontSize.toDouble(),
               ),
-            ],
+            ),
           ),
           actions: [
             IconButton(
-              icon: Icon(_isDetailedView ? Icons.view_list : Icons.view_agenda),
-              tooltip: _isDetailedView ? 'Switch to Basic View' : 'Switch to Detailed View',
+              icon: Icon(
+                _isDetailedView ? Icons.view_list : Icons.view_agenda,
+                color: themeProvider.isDarkMode ? Colors.white : Colors.black,
+              ),
+              tooltip: _isDetailedView ? 'Chuyển sang chế độ xem cơ bản' : 'Chuyển sang chế độ xem chi tiết',
               onPressed: _toggleViewMode,
             ),
             Padding(
@@ -652,134 +634,164 @@ class _HomeScreenState extends State<HomeScreen> {
               child: GestureDetector(
                 onTap: _goToProfile,
                 child: CircleAvatar(
-                  backgroundColor: Colors.white,
+                  radius: 10,
+                  backgroundColor: Colors.grey.shade200,
                   backgroundImage: _profilePicUrl != null ? NetworkImage('$_baseUrl$_profilePicUrl') : null,
-                  child: _profilePicUrl == null ? const Icon(Icons.person, color: Colors.grey) : null,
+                  child: _profilePicUrl == null ? const Icon(Icons.person, color: Colors.grey, size: 10) : null,
                 ),
               ),
             ),
           ],
         ),
         drawer: Drawer(
-          child: ListView(
-            padding: EdgeInsets.zero,
+          child: Column(
             children: [
               DrawerHeader(
-                decoration: BoxDecoration(color: themeProvider.isDarkMode ? Colors.grey[800] : Colors.blue),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: themeProvider.isDarkMode
+                        ? [Colors.grey.shade800, Colors.grey.shade900]
+                        : [Colors.blue.shade600, Colors.blue.shade800],
+                  ),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.grey.shade200,
+                      backgroundImage: _profilePicUrl != null ? NetworkImage('$_baseUrl$_profilePicUrl') : null,
+                      child: _profilePicUrl == null ? const Icon(Icons.person, size: 30, color: Colors.grey) : null,
+                    ),
+                    const SizedBox(height: 8),
                     Text(
-                      'Email Folders',
-                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 24),
+                      _userName,
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Trả lời tự động: ${_autoAnswerEnabled ? 'Bật' : 'Tắt'}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 14),
                     ),
                     const Spacer(),
                     Text(
-                      'Auto Answer: ${_autoAnswerEnabled ? 'On' : 'Off'}',
-                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.white, fontSize: 16),
-                    ),
-                    Text(
-                      'Current Time: ${TimeOfDay.now().format(context)} ${DateTime.now().toLocal().timeZoneName}, ${DateTime.now().toLocal().toString().split(' ')[0]}',
-                      style: TextStyle(color: themeProvider.isDarkMode ? Colors.white70 : Colors.white70, fontSize: 12),
+                      'Thời gian: ${TimeOfDay.now().format(context)} ${DateTime.now().toLocal().timeZoneName}, ${DateTime.now().toLocal().toString().split(' ')[0]}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.inbox),
-                title: Row(
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
                   children: [
-                    const Text('Inbox'),
-                    if (_unreadInboxCount > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: Chip(
-                          label: Text(
-                            '$_unreadInboxCount',
-                            style: const TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                          backgroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        ),
+                    ListTile(
+                      leading: const Icon(Icons.inbox),
+                      title: Row(
+                        children: [
+                          const Text('Hộp thư đến'),
+                          if (_unreadInboxCount > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8.0),
+                              child: Chip(
+                                label: Text(
+                                  '$_unreadInboxCount',
+                                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                                ),
+                                backgroundColor: Colors.red,
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                              ),
+                            ),
+                        ],
                       ),
+                      selected: _currentFolder == 'inbox',
+                      selectedTileColor: Colors.blue.shade100,
+                      onTap: () {
+                        _switchFolder('inbox');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.star),
+                      title: const Text('Đã gắn sao'),
+                      selected: _currentFolder == 'starred',
+                      selectedTileColor: Colors.blue.shade100,
+                      onTap: () {
+                        _switchFolder('starred');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.send),
+                      title: const Text('Đã gửi'),
+                      selected: _currentFolder == 'sent',
+                      selectedTileColor: Colors.blue.shade100,
+                      onTap: () {
+                        _switchFolder('sent');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.drafts),
+                      title: const Text('Bản nháp'),
+                      selected: _currentFolder == 'draft',
+                      selectedTileColor: Colors.blue.shade100,
+                      onTap: () {
+                        _switchFolder('draft');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.delete),
+                      title: const Text('Thùng rác'),
+                      selected: _currentFolder == 'trash',
+                      selectedTileColor: Colors.blue.shade100,
+                      onTap: () {
+                        _switchFolder('trash');
+                        Navigator.pop(context);
+                      },
+                    ),
+                    ExpansionTile(
+                      leading: const Icon(Icons.label),
+                      title: const Text('Nhãn'),
+                      trailing: Icon(
+                        _selectedLabels.isEmpty ? Icons.arrow_forward_ios : Icons.arrow_drop_down,
+                        size: 16,
+                      ),
+                      children: [
+                        for (var label in _labels)
+                          CheckboxListTile(
+                            title: Text(label),
+                            value: _selectedLabels.contains(label),
+                            onChanged: (_) => _toggleLabel(label),
+                            activeColor: Colors.blue.shade700,
+                          ),
+                      ],
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.manage_search),
+                      title: const Text('Quản lý nhãn'),
+                      onTap: () {
+                        // Đóng drawer trước
+                        Navigator.pop(context);
+                        // Chuyển hướng đến ManageLabelsScreen
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ManageLabelsScreen(token: widget.token),
+                          ),
+                        ).then((_) {
+                          // Cập nhật danh sách nhãn và email/draft sau khi quay lại
+                          _fetchLabels();
+                          if (_currentFolder == 'draft') {
+                            _fetchDrafts();
+                          } else {
+                            _fetchEmails();
+                          }
+                        });
+                      },
+                    ),
                   ],
                 ),
-                selected: _currentFolder == 'inbox',
-                onTap: () {
-                  _switchFolder('inbox');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.star),
-                title: const Text('Starred'),
-                selected: _currentFolder == 'starred',
-                onTap: () {
-                  _switchFolder('starred');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.send),
-                title: const Text('Sent'),
-                selected: _currentFolder == 'sent',
-                onTap: () {
-                  _switchFolder('sent');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.drafts),
-                title: const Text('Draft'),
-                selected: _currentFolder == 'draft',
-                onTap: () {
-                  _switchFolder('draft');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete),
-                title: const Text('Trash'),
-                selected: _currentFolder == 'trash',
-                onTap: () {
-                  _switchFolder('trash');
-                  Navigator.pop(context);
-                },
-              ),
-              ExpansionTile(
-                leading: const Icon(Icons.label),
-                title: const Text('Labels'),
-                trailing: Icon(
-                  _selectedLabels.isEmpty ? Icons.arrow_forward_ios : Icons.arrow_drop_down,
-                  size: 20,
-                ),
-                children: [
-                  for (var label in _labels)
-                    CheckboxListTile(
-                      title: Text(label),
-                      value: _selectedLabels.contains(label),
-                      onChanged: (_) => _toggleLabel(label),
-                    ),
-                ],
-              ),
-              ListTile(
-                leading: const Icon(Icons.manage_search),
-                title: const Text('Manage labels'),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ManageLabelsScreen(token: widget.token),
-                    ),
-                  ).then((_) {
-                    _fetchLabels();
-                    if (_currentFolder == 'draft') {
-                      _fetchDrafts();
-                    } else {
-                      _fetchEmails();
-                    }
-                  });
-                },
               ),
             ],
           ),
@@ -787,72 +799,146 @@ class _HomeScreenState extends State<HomeScreen> {
         body: Column(
           children: [
             if (_showAdvancedSearch)
-              Container(
-                padding: const EdgeInsets.all(8.0),
-                color: themeProvider.isDarkMode ? Colors.grey[900] : Colors.grey[200],
-                child: Column(
-                  children: [
-                    if (_currentFolder != 'draft')
+              Card(
+                elevation: 4,
+                margin: const EdgeInsets.all(8.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tìm kiếm nâng cao',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue.shade900,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_currentFolder != 'draft')
+                        CheckboxListTile(
+                          title: Text(
+                            'Từ tôi',
+                            style: TextStyle(
+                              color: themeProvider.isDarkMode ? Colors.white : Colors.black,
+                              fontFamily: _defaultFontFamily,
+                            ),
+                          ),
+                          value: _fromMe,
+                          onChanged: (value) {
+                            setState(() {
+                              _fromMe = value ?? false;
+                            });
+                            _fetchEmails();
+                          },
+                          activeColor: Colors.blue.shade700,
+                        ),
+                      ListTile(
+                        title: Text(
+                          'Khoảng thời gian',
+                          style: TextStyle(
+                            color: themeProvider.isDarkMode ? Colors.white : Colors.black,
+                            fontFamily: _defaultFontFamily,
+                          ),
+                        ),
+                        subtitle: _dateRange != null
+                            ? Text(
+                                '${_dateRange!.start.toString().split(' ')[0]} - ${_dateRange!.end.toString().split(' ')[0]}',
+                                style: TextStyle(
+                                  color: themeProvider.isDarkMode ? Colors.white70 : Colors.grey.shade600,
+                                  fontFamily: _defaultFontFamily,
+                                ),
+                              )
+                            : Text(
+                                'Chọn khoảng thời gian',
+                                style: TextStyle(
+                                  color: themeProvider.isDarkMode ? Colors.white70 : Colors.grey.shade600,
+                                  fontFamily: _defaultFontFamily,
+                                ),
+                              ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.calendar_today),
+                          onPressed: _selectDateRange,
+                        ),
+                      ),
                       CheckboxListTile(
                         title: Text(
-                          'From me',
-                          style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
+                          'Có tệp đính kèm',
+                          style: TextStyle(
+                            color: themeProvider.isDarkMode ? Colors.white : Colors.black,
+                            fontFamily: _defaultFontFamily,
+                          ),
                         ),
-                        value: _fromMe,
+                        value: _hasAttachments,
                         onChanged: (value) {
                           setState(() {
-                            _fromMe = value ?? false;
+                            _hasAttachments = value ?? false;
                           });
-                          _fetchEmails();
+                          if (_currentFolder == 'draft') {
+                            _fetchDrafts();
+                          } else {
+                            _fetchEmails();
+                          }
                         },
+                        activeColor: Colors.blue.shade700,
                       ),
-                    ListTile(
-                      title: const Text('Date range'),
-                      subtitle: _dateRange != null
-                          ? Text(
-                              '${_dateRange!.start.toString().split(' ')[0]} - ${_dateRange!.end.toString().split(' ')[0]}',
-                            )
-                          : const Text('Select date range'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: _selectDateRange,
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue.shade700),
+                        ),
+                        child: TextButton(
+                          onPressed: _resetFilters,
+                          child: Text(
+                            'Đặt lại bộ lọc',
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontFamily: _defaultFontFamily,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    CheckboxListTile(
-                      title: Text(
-                        'Has attachments',
-                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.white : Colors.black),
-                      ),
-                      value: _hasAttachments,
-                      onChanged: (value) {
-                        setState(() {
-                          _hasAttachments = value ?? false;
-                        });
-                        if (_currentFolder == 'draft') {
-                          _fetchDrafts();
-                        } else {
-                          _fetchEmails();
-                        }
-                      },
-                    ),
-                    ElevatedButton(
-                      onPressed: _resetFilters,
-                      child: const Text('Reset Filters'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             Expanded(
               child: _error.isNotEmpty
                   ? Center(
-                      child: Text(
-                        _error,
-                        style: TextStyle(color: themeProvider.isDarkMode ? Colors.red[400] : Colors.red),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _error,
+                          style: TextStyle(
+                            color: Colors.red.shade900,
+                            fontFamily: _defaultFontFamily,
+                            fontSize: _defaultFontSize.toDouble(),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     )
                   : (_searchQuery.isNotEmpty &&
                           ((_emails.isEmpty && _currentFolder != 'draft') || (_drafts.isEmpty && _currentFolder == 'draft')))
-                      ? const Center(child: Text('Not found'))
+                      ? Center(
+                          child: Text(
+                            'Không tìm thấy kết quả',
+                            style: TextStyle(
+                              color: themeProvider.isDarkMode ? Colors.white70 : Colors.grey.shade600,
+                              fontFamily: _defaultFontFamily,
+                              fontSize: _defaultFontSize.toDouble(),
+                            ),
+                          ),
+                        )
                       : (_emails.isEmpty && _drafts.isEmpty)
                           ? const Center(child: CircularProgressIndicator())
                           : ListView.builder(
@@ -861,201 +947,184 @@ class _HomeScreenState extends State<HomeScreen> {
                                 final item = _currentFolder == 'draft' ? _drafts[index] : _emails[index];
                                 final isRead = _currentFolder != 'draft' ? item['isRead'] as bool : false;
                                 final isStarred = _currentFolder != 'draft' ? item['isStarred'] as bool : false;
-                                final hasAttachments =
-                                    _currentFolder != 'draft' && item['attachments'] != null && (item['attachments'] as List).isNotEmpty;
+                                final hasAttachments = _currentFolder != 'draft' &&
+                                    item['attachments'] != null &&
+                                    (item['attachments'] as List).isNotEmpty;
                                 final hasDraftAttachment =
                                     _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
                                 final itemId = item['id'] as int;
                                 final isHovering = _hoverStates[itemId] ?? false;
 
                                 return MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  onEnter: (_) => mounted ? setState(() => _hoverStates[itemId] = true) : null,
-                                  onExit: (_) => mounted ? setState(() => _hoverStates[itemId] = false) : null,
+                                  onEnter: (_) => setState(() => _hoverStates[itemId] = true),
+                                  onExit: (_) => setState(() => _hoverStates[itemId] = false),
                                   child: GestureDetector(
                                     onTap: () async {
-                                      if (_currentFolder == 'draft') {
-                                        await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => ComposeEmailScreen(
-                                              token: widget.token,
-                                              draft: item,
-                                              defaultFontSize: _defaultFontSize,
-                                              defaultFontFamily: _defaultFontFamily,
-                                            ),
-                                          ),
-                                        );
-                                        if (mounted) {
-                                          setState(() {
-                                            _drafts = [];
-                                            _error = '';
-                                          });
+                                      if (_currentFolder != 'draft' && !isRead) {
+                                        await _updateEmailReadStatus(itemId, true);
+                                      }
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => _currentFolder == 'draft'
+                                              ? ComposeEmailScreen(
+                                                  token: widget.token,
+                                                  defaultFontSize: _defaultFontSize,
+                                                  defaultFontFamily: _defaultFontFamily,
+                                                )
+                                              : EmailDetailScreen(
+                                                  emailId: itemId,
+                                                  token: widget.token,
+                                                ),
+                                        ),
+                                      );
+                                      if (result == 'refresh' && mounted) {
+                                        if (_currentFolder == 'draft') {
                                           _fetchDrafts();
-                                        }
-                                      } else {
-                                        final result = await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => EmailDetailScreen(
-                                              emailId: item['id'],
-                                              token: widget.token,
-                                            ),
-                                          ),
-                                        );
-                                        if (result != null && result is Map<String, dynamic> && mounted) {
-                                          final updatedIsRead = result['isRead'] as bool?;
-                                          final updatedIsStarred = result['isStarred'] as bool?;
-                                          if (updatedIsRead != null) {
-                                            _updateEmailReadStatus(item['id'], updatedIsRead);
-                                          }
-                                          if (updatedIsStarred != null) {
-                                            setState(() {
-                                              final emailIndex = _emails.indexWhere((e) => e['id'] == item['id']);
-                                              if (emailIndex != -1) _emails[emailIndex]['isStarred'] = updatedIsStarred;
-                                            });
-                                          }
+                                        } else {
+                                          _fetchEmails();
                                         }
                                       }
                                     },
-                                    child: Container(
-                                      color: _currentFolder == 'draft'
-                                          ? Colors.grey[100]
-                                          : (isRead ? Colors.grey[200] : Colors.white),
-                                      child: ListTile(
-                                        leading: Tooltip(
-                                          message: isStarred ? 'starred' : 'not starred',
-                                          child: MouseRegion(
-                                            cursor: SystemMouseCursors.click,
-                                            child: IconButton(
-                                              icon: Icon(
-                                                isStarred ? Icons.star : Icons.star_border,
-                                                color: isStarred ? Colors.yellow[600] : Colors.grey[400],
-                                                size: 24,
-                                              ),
-                                              onPressed: _currentFolder != 'draft'
-                                                  ? () {
-                                                      final newStarStatus = !isStarred;
-                                                      if (mounted) setState(() => item['isStarred'] = newStarStatus);
-                                                      _updateAction(itemId, 'star', newStarStatus);
-                                                    }
-                                                  : null,
-                                              splashRadius: 20,
-                                              iconSize: 24,
-                                              padding: const EdgeInsets.all(4),
-                                              constraints: const BoxConstraints(),
-                                              style: IconButton.styleFrom(
-                                                side: BorderSide(
-                                                  color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
-                                                  width: 1,
-                                                  style: BorderStyle.solid,
+                                    child: Card(
+                                      elevation: isHovering ? 8 : 2,
+                                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      color: isRead
+                                          ? (themeProvider.isDarkMode ? Colors.grey.shade800 : Colors.white)
+                                          : (themeProvider.isDarkMode ? Colors.grey.shade700 : Colors.grey.shade50),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12.0),
+                                        child: Row(
+                                          children: [
+                                            if (_currentFolder != 'draft')
+                                              IconButton(
+                                                icon: Icon(
+                                                  isStarred ? Icons.star : Icons.star_border,
+                                                  color: isStarred ? Colors.yellow.shade700 : Colors.grey.shade600,
+                                                  size: 20,
                                                 ),
+                                                onPressed: () => _updateAction(itemId, 'star', !isStarred),
+                                                tooltip: isStarred ? 'Bỏ gắn sao' : 'Gắn sao',
                                               ),
-                                            ),
-                                          ),
-                                        ),
-                                        title: Text(
-                                          item['subject'] ?? 'No Subject',
-                                          style: TextStyle(
-                                            fontWeight: _currentFolder == 'draft'
-                                                ? FontWeight.normal
-                                                : (isRead ? FontWeight.normal : FontWeight.bold),
-                                          ),
-                                        ),
-                                        subtitle: _isDetailedView
-                                            ? Column(
+                                            Expanded(
+                                              child: Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          _currentFolder == 'draft'
+                                                              ? (item['recipient'] ?? 'Bản nháp')
+                                                              : (item['senderPhone'] ?? 'Không rõ'),
+                                                          style: TextStyle(
+                                                            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                                                            color: themeProvider.isDarkMode
+                                                                ? Colors.white
+                                                                : Colors.black87,
+                                                            fontSize: _defaultFontSize.toDouble(),
+                                                            fontFamily: _defaultFontFamily,
+                                                          ),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        item['timestamp'] != null
+                                                            ? DateTime.parse(item['timestamp'])
+                                                                .toLocal()
+                                                                .toString()
+                                                                .split(' ')[0]
+                                                            : '',
+                                                        style: TextStyle(
+                                                          color: themeProvider.isDarkMode
+                                                              ? Colors.white70
+                                                              : Colors.grey.shade600,
+                                                          fontSize: (_defaultFontSize - 2).toDouble(),
+                                                          fontFamily: _defaultFontFamily,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                   Text(
-                                                    _currentFolder == 'draft'
-                                                        ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
-                                                        : 'From: ${item['senderPhone']}',
+                                                    item['subject'] ?? '(Không có chủ đề)',
                                                     style: TextStyle(
-                                                      fontWeight: _currentFolder == 'draft'
-                                                          ? FontWeight.normal
-                                                          : (isRead ? FontWeight.normal : FontWeight.bold),
+                                                      fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                                                      color: themeProvider.isDarkMode
+                                                          ? Colors.white
+                                                          : Colors.black87,
+                                                      fontSize: _defaultFontSize.toDouble(),
+                                                      fontFamily: _defaultFontFamily,
                                                     ),
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
-                                                  Text(
-                                                    _getEmailPreview(item['body'] ?? ''),
-                                                    style: TextStyle(color: Colors.grey[600]),
-                                                  ),
+                                                  if (_isDetailedView)
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(top: 4.0),
+                                                      child: Text(
+                                                        _getEmailPreview(item['body'] ?? ''),
+                                                        style: TextStyle(
+                                                          color: themeProvider.isDarkMode
+                                                              ? Colors.white70
+                                                              : Colors.grey.shade600,
+                                                          fontSize: (_defaultFontSize - 2).toDouble(),
+                                                          fontFamily: _defaultFontFamily,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
                                                   if (hasAttachments || hasDraftAttachment)
-                                                    Row(
-                                                      children: [
-                                                        const Icon(Icons.attach_file, size: 16, color: Colors.grey),
-                                                        const SizedBox(width: 4),
-                                                        Text(
-                                                          'Attachment',
-                                                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                                                        ),
-                                                      ],
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(top: 4.0),
+                                                      child: Icon(
+                                                        Icons.attach_file,
+                                                        size: 16,
+                                                        color: themeProvider.isDarkMode
+                                                            ? Colors.white70
+                                                            : Colors.grey.shade600,
+                                                      ),
                                                     ),
                                                 ],
-                                              )
-                                            : Text(
-                                                _currentFolder == 'draft'
-                                                    ? 'To: ${item['recipientPhone'] ?? 'No Recipient'}'
-                                                    : 'From: ${item['senderPhone']}',
-                                                style: TextStyle(
-                                                  fontWeight: _currentFolder == 'draft'
-                                                      ? FontWeight.normal
-                                                      : (isRead ? FontWeight.normal : FontWeight.bold),
-                                                ),
                                               ),
-                                        trailing: isHovering
-                                            ? Row(
-                                                mainAxisSize: MainAxisSize.min,
+                                            ),
+                                            if (isHovering && _currentFolder != 'draft')
+                                              Row(
                                                 children: [
-                                                  Tooltip(
-                                                    message: isRead ? 'Mark as unread' : 'Mark as read',
-                                                    child: IconButton(
-                                                      icon: Icon(
-                                                        isRead ? Icons.mail : Icons.mail_outline,
-                                                        size: 24,
-                                                      ),
-                                                      onPressed: _currentFolder != 'draft'
-                                                          ? () {
-                                                              final newReadStatus = !isRead;
-                                                              _updateEmailReadStatus(itemId, newReadStatus);
-                                                            }
-                                                          : null,
-                                                      splashRadius: 20,
-                                                      iconSize: 24,
-                                                      padding: const EdgeInsets.all(4),
-                                                      constraints: const BoxConstraints(),
-                                                      style: IconButton.styleFrom(
-                                                        side: BorderSide(
-                                                          color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
-                                                          width: 1,
-                                                          style: BorderStyle.solid,
-                                                        ),
-                                                      ),
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      isRead ? Icons.mark_email_unread : Icons.mark_email_read,
+                                                      color: Colors.grey.shade600,
+                                                      size: 20,
                                                     ),
+                                                    onPressed: () => _updateAction(itemId, 'read', !isRead),
+                                                    tooltip: isRead ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc',
                                                   ),
-                                                  Tooltip(
-                                                    message: 'Delete',
-                                                    child: IconButton(
-                                                      icon: const Icon(Icons.delete, size: 24),
-                                                      onPressed: () {
-                                                        _updateAction(itemId, 'trash', true);
-                                                      },
-                                                      splashRadius: 20,
-                                                      iconSize: 24,
-                                                      padding: const EdgeInsets.all(4),
-                                                      constraints: const BoxConstraints(),
-                                                      style: IconButton.styleFrom(
-                                                        side: BorderSide(
-                                                          color: isHovering ? Colors.grey[700]! : Colors.grey[400]!,
-                                                          width: 1,
-                                                          style: BorderStyle.solid,
-                                                        ),
-                                                      ),
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      Icons.delete,
+                                                      color: Colors.grey.shade600,
+                                                      size: 20,
                                                     ),
+                                                    onPressed: () => _updateAction(itemId, 'trash', true),
+                                                    tooltip: 'Xóa',
                                                   ),
                                                 ],
-                                              )
-                                            : null,
+                                              ),
+                                            if (isHovering && _currentFolder == 'draft')
+                                              IconButton(
+                                                icon: Icon(
+                                                  Icons.delete,
+                                                  color: Colors.grey.shade600,
+                                                  size: 20,
+                                                ),
+                                                onPressed: () => _updateAction(itemId, 'trash', true),
+                                                tooltip: 'Xóa bản nháp',
+                                              ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1067,9 +1136,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         floatingActionButton: FloatingActionButton(
           onPressed: _navigateToCompose,
-          child: const Icon(Icons.edit),
+          backgroundColor: Colors.blue.shade700,
+          elevation: 6,
+          tooltip: 'Soạn email',
+          child: const Icon(Icons.edit, color: Colors.white),
         ),
       ),
     );
   }
+}
+
+extension ListMapExtension on List {
+  List<Map<String, dynamic>> toMapList() => map((e) => Map<String, dynamic>.from(e)).toList();
 }
