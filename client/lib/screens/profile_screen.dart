@@ -31,7 +31,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _defaultFontFamily = 'Arial';
   String _error = '';
   bool _isLoading = false;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://192.168.100.30:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
 
   @override
   void initState() {
