@@ -9,7 +9,8 @@ const fs = require('fs');
 
 const app = express();
 app.use(cors({
-  origin: 'https://your-client-app.onrender.com', // Thay bằng URL của client sau khi triển khai
+  // origin: 'https://simulated-email-service-application.onrender.com', // Thay bằng URL của client sau khi triển khai
+  origin: '*', // Thay bằng URL của client sau khi triển khai
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -132,6 +133,10 @@ const authenticate = (req, res, next) => {
     res.status(401).json({ error: 'Invalid token' });
   }
 };
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Welcome to Simulated Email Service API. Use Flutter app or /api endpoints to interact.' });
+});
 
 // Registration
 app.post('/api/register', upload.single('profilePic'), async (req, res) => {
