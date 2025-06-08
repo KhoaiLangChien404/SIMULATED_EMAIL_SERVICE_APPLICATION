@@ -1,5 +1,5 @@
 # Sử dụng image Node.js làm base để cài đặt Flutter
-FROM node:18 AS build
+FROM cirrusci/flutter:stable AS builder
 
 # Cài đặt các công cụ cần thiết
 RUN apt-get update && apt-get install -y \
