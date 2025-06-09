@@ -23,7 +23,9 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalName));
+    const originalName = file.originalname || 'uploaded_file';
+    const ext = path.extname(originalName) || '.bin';
+    cb(null, uniqueSuffix + ext);
   },
 });
 
@@ -34,16 +36,30 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
   console.log('Connected to SQLite database');
   db.run('PRAGMA encoding = "UTF-8"');
 
-  // Migrate database to add notificationsEnabled column
   db.run('ALTER TABLE users ADD COLUMN notificationsEnabled BOOLEAN DEFAULT 1', (err) => {
     if (err && !err.message.includes('duplicate column name')) {
       console.error('Error adding notificationsEnabled column:', err);
-    } else {
-      console.log('Added notificationsEnabled column or it already exists');
     }
   });
 
-  // Database schema creation
+  db.run('ALTER TABLE emails ADD COLUMN isAutoReply BOOLEAN DEFAULT 0', (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding isAutoReply column:', err);
+    }
+  });
+
+  db.run('ALTER TABLE emails ADD COLUMN isCc BOOLEAN DEFAULT 0', (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding isCc column:', err);
+    }
+  });
+
+  db.run('ALTER TABLE emails ADD COLUMN isBcc BOOLEAN DEFAULT 0', (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding isBcc column:', err);
+    }
+  });
+
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +89,10 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       isRead BOOLEAN DEFAULT 0,
       isStarred BOOLEAN DEFAULT 0,
-      isTrashed BOOLEAN DEFAULT 0
+      isTrashed BOOLEAN DEFAULT 0,
+      isAutoReply BOOLEAN DEFAULT 0,
+      isCc BOOLEAN DEFAULT 0,
+      isBcc BOOLEAN DEFAULT 0
     )
   `);
 
@@ -123,9 +142,8 @@ const db = new sqlite3.Database('email.db', sqlite3.OPEN_READWRITE | sqlite3.OPE
   `);
 });
 
-const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d16d0f3f0e5249f42a089dcb93704ec50aa184dfc0863d2f2ce9156';
+const SECRET_KEY = '8d82733305f00766889c5182cce274f06190bfbafc267659c65d7bce60034bdc3dc9cb497d3d2f0e3f0e5249f42a089dc93704ec50aa184df10863d2f2ce9156';
 
-// Middleware to verify JWT
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -346,151 +364,104 @@ app.post('/api/profile', authenticate, upload.single('profilePic'), async (req, 
 // Compose and Send Email with Attachments
 app.post('/api/send-email', authenticate, upload.array('attachments', 5), async (req, res) => {
   const { recipientPhone, cc, bcc, subject, body } = req.body;
-  const attachments = req.files || [];
+  const senderPhone = req.user.phone;
+  const files = req.files || [];
+  const attachments = files.map(file => ({
+    filePath: `/uploads/${file.filename}`,
+    fileType: file.mimetype,
+    originalFileName: encodeURIComponent(file.originalname || 'attachment')
+  }));
+
   if (!recipientPhone || !subject || !body) {
     return res.status(400).json({ error: 'Recipient, subject, and body are required' });
   }
 
   try {
-    // Parse CC and BCC (comma-separated phone numbers)
-    const ccList = cc ? cc.split(',').map(phone => phone.trim()).filter(phone => phone) : [];
-    const bccList = bcc ? bcc.split(',').map(phone => phone.trim()).filter(phone => phone) : [];
+    db.get('SELECT phone, autoAnswerEnabled, autoAnswerMessage, notificationsEnabled FROM users WHERE phone = ?', [recipientPhone], (err, recipient) => {
+      if (err) {
+        console.error('Recipient fetch error:', err);
+        return res.status(500).json({ error: 'Server error' });
+      }
+      if (!recipient) {
+        return res.status(404).json({ error: 'Recipient not found' });
+      }
 
-    // Combine all recipients (recipientPhone + cc + bcc) for validation
-    const allRecipients = [recipientPhone, ...ccList, ...bccList];
-
-    // Validate all recipients exist in the database
-    const recipientCheckPromises = allRecipients.map(phone =>
-      new Promise((resolve, reject) => {
-        db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage, notificationsEnabled FROM users WHERE phone = ?', [phone], (err, user) => {
-          if (err) {
-            console.error(`Error checking user ${phone}:`, err);
-            reject(err);
-          } else if (!user) {
-            reject(new Error(`Recipient phone number not found: ${phone}`));
-          } else {
-            resolve({ phone, user });
-          }
+      const saveEmail = (recPhone, isCcValue = 0, isBccValue = 0) => {
+        return new Promise((resolve, reject) => {
+          db.run(
+            'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body, timestamp, isAutoReply, isCc, isBcc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [senderPhone, recPhone, cc || '', bcc || '', subject, body, new Date().toISOString(), 0, isCcValue, isBccValue],
+            function (err) {
+              if (err) {
+                console.error(`Email save error for ${recPhone}:`, err);
+                reject(err);
+              } else {
+                const emailId = this.lastID;
+                if (attachments.length > 0) {
+                  const placeholders = attachments.map(() => '(?, ?, ?, ?)').join(', ');
+                  const values = attachments.flatMap(a => [emailId, a.filePath, a.fileType, a.originalFileName]);
+                  db.run(
+                    `INSERT INTO attachments (emailId, filePath, fileType, originalFileName) VALUES ${placeholders}`,
+                    values,
+                    (err) => {
+                      if (err) {
+                        console.error(`Attachment save error for ${recPhone}:`, err);
+                        reject(err);
+                      }
+                    }
+                  );
+                }
+                resolve(emailId);
+              }
+            }
+          );
         });
-      })
-    );
+      };
 
-    const recipients = await Promise.allSettled(recipientCheckPromises).then(results => {
-      const validRecipients = [];
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          validRecipients.push(result.value);
-        } else {
-          console.error(result.reason);
-        }
-      }
-      return validRecipients;
-    });
+      saveEmail(recipientPhone)
+        .then(emailId => {
+          const ccNumbers = cc ? cc.split(',').map(num => num.trim()).filter(num => num) : [];
+          const bccNumbers = bcc ? bcc.split(',').map(num => num.trim()).filter(num => num) : [];
 
-    if (recipients.length === 0) {
-      return res.status(400).json({ error: 'No valid recipients found' });
-    }
-
-    // Insert email for each valid recipient
-    const emailInsertPromises = recipients.map(({ phone, user }) =>
-      new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
-          [req.user.phone, phone, cc || '', bcc || '', subject, body],
-          function (err) {
-            if (err) {
-              console.error(`Error inserting email for ${phone}:`, err);
-              reject(err);
-            } else {
-              resolve({ emailId: this.lastID, recipient: user });
+          const promises = [];
+          ccNumbers.forEach(ccNum => {
+            if (ccNum !== recipientPhone) {
+              promises.push(saveEmail(ccNum, 1, 0));
             }
-          }
-        );
-      })
-    );
+          });
 
-    const insertedEmails = await Promise.allSettled(emailInsertPromises).then(results => {
-      const successfulEmails = [];
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          successfulEmails.push(result.value);
-        } else {
-          console.error('Email insertion error:', result.reason);
-        }
-      }
-      return successfulEmails;
-    });
-
-    if (insertedEmails.length === 0) {
-      return res.status(500).json({ error: 'Failed to send email to any recipient' });
-    }
-
-    // Insert attachments for each email
-    const attachmentPromises = insertedEmails.map(({ emailId }) =>
-      new Promise((resolve, reject) => {
-        if (attachments.length > 0) {
-          const attachmentData = attachments.map(file => ({
-            emailId,
-            filePath: `/uploads/${file.filename}`,
-            fileType: file.mimetype,
-            originalFileName: encodeURIComponent(file.originalname),
-          }));
-          db.run(
-            `INSERT INTO attachments (emailId, filePath, fileType, originalFileName) VALUES ${attachmentData.map(() => '(?, ?, ?, ?)').join(',')}`,
-            attachmentData.flatMap(a => [a.emailId, a.filePath, a.fileType, a.originalFileName]),
-            (err) => {
-              if (err) {
-                console.error('Attachment insertion error:', err);
-                reject(err);
-              } else {
-                resolve();
-              }
+          bccNumbers.forEach(bccNum => {
+            if (bccNum !== recipientPhone && !ccNumbers.includes(bccNum)) {
+              promises.push(saveEmail(bccNum, 0, 1));
             }
-          );
-        } else {
-          resolve();
-        }
-      })
-    );
+          });
 
-    await Promise.allSettled(attachmentPromises).then(results => {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          console.error('Attachment insertion error:', result.reason);
-        }
-      }
-    });
-
-    // Send auto-answer for recipients with autoAnswerEnabled
-    const autoAnswerPromises = insertedEmails
-      .filter(({ recipient }) => recipient.autoAnswerEnabled && recipient.autoAnswerMessage && recipient.notificationsEnabled)
-      .map(({ emailId, recipient }) =>
-        new Promise((resolve, reject) => {
-          console.log(`Auto answering for recipient ${recipient.phone} with message: ${recipient.autoAnswerMessage}`);
-          db.run(
-            'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
-            [recipient.phone, req.user.phone, `Re: ${subject}`, recipient.autoAnswerMessage],
-            (err) => {
-              if (err) {
-                console.error('Auto answer email insertion error:', err);
-                reject(err);
-              } else {
-                resolve();
-              }
-            }
-          );
+          return Promise.all(promises).then(() => emailId);
         })
-      );
+        .then((emailId) => {
+          if (recipient.autoAnswerEnabled && recipient.notificationsEnabled && !req.body.isAutoReply) {
+            const autoReplySubject = `Re: ${subject}`;
+            const autoReplyBody = recipient.autoAnswerMessage || 'Tôi sẽ trả lời bạn sau';
+            db.run(
+              'INSERT INTO emails (senderPhone, recipientPhone, subject, body, timestamp, isAutoReply) VALUES (?, ?, ?, ?, ?, ?)',
+              [recipientPhone, senderPhone, autoReplySubject, autoReplyBody, new Date().toISOString(), 1],
+              function (err) {
+                if (err) {
+                  console.error('Auto reply error:', err);
+                } else {
+                  console.log(`Auto reply sent from ${recipientPhone} to ${senderPhone}`);
+                }
+              }
+            );
+          }
 
-    await Promise.allSettled(autoAnswerPromises).then(results => {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          console.error('Auto answer error:', result.reason);
-        }
-      }
+          res.status(200).json({ message: 'Email sent successfully', emailId });
+        })
+        .catch(err => {
+          console.error('Error processing email copies:', err);
+          res.status(500).json({ error: 'Failed to process email copies' });
+        });
     });
-
-    res.json({ message: 'Email sent', emailId: insertedEmails.map(e => e.emailId) });
   } catch (e) {
     console.error('Send email exception:', e);
     res.status(500).json({ error: 'Server error' });
@@ -596,6 +567,9 @@ app.get('/api/emails', authenticate, (req, res) => {
           isRead: email.isRead === 1 || email.isRead === '1',
           isStarred: email.isStarred === 1 || email.isStarred === '1',
           isTrashed: email.isTrashed === 1 || email.isTrashed === '1',
+          isAutoReply: email.isAutoReply === 1 || email.isAutoReply === '1',
+          isCc: email.isCc === 1 || email.isCc === '1',
+          isBcc: email.isBcc === 1 || email.isBcc === '1'
         };
       });
       console.log('Emails response:', result);
@@ -656,6 +630,9 @@ app.get('/api/emails/:id', authenticate, (req, res) => {
             email.isRead = email.isRead === 1 || email.isRead === '1';
             email.isStarred = email.isStarred === 1 || email.isStarred === '1';
             email.isTrashed = email.isTrashed === 1 || email.isTrashed === '1';
+            email.isAutoReply = email.isAutoReply === 1 || email.isAutoReply === '1';
+            email.isCc = email.isCc === 1 || email.isCc === '1';
+            email.isBcc = email.isBcc === 1 || email.isBcc === '1';
             email.attachments = attachments.map(attachment => ({
               ...attachment,
               originalFileName: decodeURIComponent(attachment.originalFileName || ''),
@@ -664,6 +641,33 @@ app.get('/api/emails/:id', authenticate, (req, res) => {
             res.json(email);
           }
         );
+      });
+    }
+  );
+});
+
+// Get Draft by ID
+app.get('/api/drafts/:id', authenticate, (req, res) => {
+  const draftId = req.params.id;
+  db.get(
+    'SELECT * FROM drafts WHERE id = ? AND senderPhone = ?',
+    [draftId, req.user.phone],
+    (err, draft) => {
+      if (err) {
+        console.error('Draft fetch error:', err);
+        return res.status(500).json({ error: 'Server error', details: err.message });
+      }
+      if (!draft) return res.status(404).json({ error: 'Draft not found' });
+      res.json({
+        id: draft.id,
+        senderPhone: draft.senderPhone,
+        recipientPhone: draft.recipientPhone || '',
+        cc: draft.cc || '',
+        bcc: draft.bcc || '',
+        subject: draft.subject || '',
+        body: draft.body || '',
+        attachment: draft.attachment || '',
+        timestamp: draft.timestamp,
       });
     }
   );
@@ -754,7 +758,7 @@ app.post('/api/save-draft', authenticate, upload.single('attachment'), async (re
   const { recipientPhone, cc, bcc, subject, body } = req.body;
   console.log('Received draft data:', { recipientPhone, cc, bcc, subject, body });
   const attachment = req.file ? `/uploads/${req.file.filename}` : null;
-  const attachmentName = req.file ? encodeURIComponent(req.file.originalname) : null;
+  const attachmentName = req.file ? encodeURIComponent(req.file.originalname || 'attachment') : null;
   if (!recipientPhone && !subject && !body) {
     return res.status(400).json({ error: 'At least one field is required for a draft' });
   }
@@ -814,7 +818,8 @@ app.get('/api/drafts', authenticate, (req, res) => {
   }
 
   let query = `
-    SELECT * FROM drafts
+    SELECT id, senderPhone, recipientPhone, cc, bcc, subject, body, attachment, timestamp
+    FROM drafts
     WHERE ${conditions.join(' AND ')}
     ORDER BY timestamp DESC
   `;
@@ -828,7 +833,15 @@ app.get('/api/drafts', authenticate, (req, res) => {
       return res.status(400).json({ error: 'Failed to fetch drafts', details: err.message });
     }
     const result = drafts.map(draft => ({
-      ...draft,
+      id: draft.id,
+      senderPhone: draft.senderPhone,
+      recipientPhone: draft.recipientPhone || '',
+      cc: draft.cc || '',
+      bcc: draft.bcc || '',
+      subject: draft.subject || '',
+      body: draft.body || '',
+      attachment: draft.attachment || '',
+      timestamp: draft.timestamp,
     }));
     console.log('Drafts response:', result);
     res.json(result);
@@ -925,48 +938,51 @@ app.get('/api/labels', authenticate, (req, res) => {
 });
 
 // Add or Remove Label
-app.post('/api/labels', authenticate, (req, res) => {
+app.post('/api/labels', authenticate, async (req, res) => {
   const { label, value } = req.body;
-  if (!label || value === undefined) {
-    return res.status(400).json({ error: 'label and value are required' });
-  }
-
   const userId = req.user.id;
-  console.log(`POST /api/labels - userId: ${userId}, label: ${label}, value: ${value}`);
 
-  if (value) {
-    db.run(
-      'INSERT OR IGNORE INTO labels (userId, label) VALUES (?, ?)',
-      [userId, label],
-      function (err) {
-        if (err) {
-          console.error('Insert label error:', err);
-          return res.status(500).json({ error: 'Failed to add label', details: err.message });
-        }
-        db.get('SELECT label FROM labels WHERE id = ?', [this.lastID], (err, row) => {
+  try {
+    if (!label || typeof label !== 'string' || label.trim() === '') {
+      return res.status(400).json({ error: 'Label is required and must be a non-empty string' });
+    }
+
+    if (value === true) {
+      db.run(
+        'INSERT INTO labels (userId, label) VALUES (?, ?)',
+        [userId, label.trim()],
+        function (err) {
           if (err) {
-            console.error('Fetch label error:', err);
-            return res.status(500).json({ error: 'Failed to fetch label', details: err.message });
+            console.error('Insert label error:', err);
+            if (err.code === 'SQLITE_CONSTRAINT') {
+              return res.status(409).json({ error: 'Label already exists' });
+            }
+            return res.status(500).json({ error: 'Failed to add label' });
           }
-          res.status(200).json({ success: true, message: 'Label added successfully', label: row.label });
-        });
-      }
-    );
-  } else {
-    db.run(
-      'DELETE FROM labels WHERE userId = ? AND label = ?',
-      [userId, label],
-      function (err) {
-        if (err) {
-          console.error('Delete label error:', err);
-          return res.status(500).json({ error: 'Failed to remove label', details: err.message });
+          res.status(200).json({ success: true, message: 'Label added successfully', label: label.trim() });
         }
-        if (this.changes === 0) {
-          return res.status(404).json({ error: 'Label not found' });
+      );
+    } else if (value === false) {
+      db.run(
+        'DELETE FROM labels WHERE userId = ? AND label = ?',
+        [userId, label.trim()],
+        function (err) {
+          if (err) {
+            console.error('Delete label error:', err);
+            return res.status(500).json({ error: 'Failed to delete label' });
+          }
+          if (this.changes === 0) {
+            return res.status(404).json({ error: 'Label not found' });
+          }
+          res.status(200).json({ success: true, message: 'Label deleted successfully' });
         }
-        res.json({ success: true, message: 'Label removed successfully' });
-      }
-    );
+      );
+    } else {
+      res.status(400).json({ error: 'Invalid value. Use true to add or false to delete' });
+    }
+  } catch (e) {
+    console.error('Label operation exception:', e);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

@@ -231,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : (email['isRead'] == true || email['isRead'] == 1);
             email['isStarred'] = email['isStarred'] == true || email['isStarred'] == 1;
             email['isTrashed'] = email['isTrashed'] == true || email['isTrashed'] == 1;
+            email['isAutoReply'] = email['isAutoReply'] == true || email['isAutoReply'] == 1;
             return email;
           }).toList();
           _drafts = [];
@@ -498,7 +499,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _navigateToCompose() async {
-    await Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ComposeEmailScreen(
@@ -508,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    if (mounted) {
+    if (result != null && mounted) {
       setState(() {
         _currentFolder = 'inbox';
         _emails = [];
@@ -732,7 +733,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     ListTile(
                       leading: const Icon(Icons.drafts),
-                      title: const Text('Bản nháp'),
+                      title: const Text('Bản thảo'),
                       selected: _currentFolder == 'draft',
                       selectedTileColor: Colors.blue.shade100,
                       onTap: () {
@@ -771,16 +772,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       leading: const Icon(Icons.manage_search),
                       title: const Text('Quản lý nhãn'),
                       onTap: () {
-                        // Đóng drawer trước
                         Navigator.pop(context);
-                        // Chuyển hướng đến ManageLabelsScreen
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => ManageLabelsScreen(token: widget.token),
                           ),
                         ).then((_) {
-                          // Cập nhật danh sách nhãn và email/draft sau khi quay lại
                           _fetchLabels();
                           if (_currentFolder == 'draft') {
                             _fetchDrafts();
@@ -954,6 +952,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     _currentFolder == 'draft' && item['attachment'] != null && item['attachment'].isNotEmpty;
                                 final itemId = item['id'] as int;
                                 final isHovering = _hoverStates[itemId] ?? false;
+                                final isAutoReply = _currentFolder != 'draft' ? item['isAutoReply'] as bool : false;
+                                final senderPhone = isAutoReply ? item['recipientPhone'] : item['senderPhone'];
 
                                 return MouseRegion(
                                   onEnter: (_) => setState(() => _hoverStates[itemId] = true),
@@ -969,6 +969,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           builder: (context) => _currentFolder == 'draft'
                                               ? ComposeEmailScreen(
                                                   token: widget.token,
+                                                  draftId: itemId.toString(),
                                                   defaultFontSize: _defaultFontSize,
                                                   defaultFontFamily: _defaultFontFamily,
                                                 )
@@ -978,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 ),
                                         ),
                                       );
-                                      if (result == 'refresh' && mounted) {
+                                      if (result != null && mounted) {
                                         if (_currentFolder == 'draft') {
                                           _fetchDrafts();
                                         } else {
@@ -1017,9 +1018,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                     children: [
                                                       Expanded(
                                                         child: Text(
-                                                          _currentFolder == 'draft'
-                                                              ? (item['recipient'] ?? 'Bản nháp')
-                                                              : (item['senderPhone'] ?? 'Không rõ'),
+                                                          senderPhone ?? 'Unknown',
                                                           style: TextStyle(
                                                             fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
                                                             color: themeProvider.isDarkMode

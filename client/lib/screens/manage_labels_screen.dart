@@ -82,18 +82,19 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {
           setState(() {
-            _labels.add(data['label'] ?? newLabel); // Sử dụng label từ response hoặc newLabel nếu không có
+            _labels.add(data['label'] ?? newLabel); // Sử dụng label từ response, fallback là newLabel
             _labelController.clear();
             _error = '';
           });
         } else {
           setState(() {
-            _error = 'Failed to add label: ${data['error'] ?? response.body}';
+            _error = 'Failed to add label: ${data['error'] ?? 'Unknown error'}';
           });
         }
       } else {
+        final errorMsg = jsonDecode(response.body)['error'] ?? response.body;
         setState(() {
-          _error = 'Failed to add label: ${response.body}';
+          _error = 'Failed to add label: $errorMsg';
         });
       }
     } catch (e) {
@@ -118,13 +119,21 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        setState(() {
-          _labels.remove(label);
-          _error = '';
-        });
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          setState(() {
+            _labels.remove(label);
+            _error = '';
+          });
+        } else {
+          setState(() {
+            _error = 'Failed to delete label: ${data['error'] ?? 'Unknown error'}';
+          });
+        }
       } else {
+        final errorMsg = jsonDecode(response.body)['error'] ?? response.body;
         setState(() {
-          _error = 'Failed to delete label: ${response.body}';
+          _error = 'Failed to delete label: $errorMsg';
         });
       }
     } catch (e) {
@@ -185,12 +194,13 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
           });
         } else {
           setState(() {
-            _error = 'Failed to edit label: ${data['error'] ?? response.body}';
+            _error = 'Failed to edit label: ${data['error'] ?? 'Unknown error'}';
           });
         }
       } else {
+        final errorMsg = jsonDecode(response.body)['error'] ?? response.body;
         setState(() {
-          _error = 'Failed to edit label: ${response.body}';
+          _error = 'Failed to edit label: $errorMsg';
         });
       }
     } catch (e) {

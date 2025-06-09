@@ -127,10 +127,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (_image != null) {
         final bytes = await _image!.readAsBytes();
+        // Ensure filename has a valid extension
+        String filename = _image!.name;
+        if (!filename.contains('.')) {
+          // Add a default extension if none exists (common for web)
+          filename = '${filename}.jpg';
+        }
         request.files.add(http.MultipartFile.fromBytes(
           'profilePic',
           bytes,
-          filename: _image!.name,
+          filename: filename,
         ));
       }
 
@@ -141,6 +147,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final updatedData = jsonDecode(response.body);
         setState(() {
           _profilePicUrl = updatedData['profilePic'];
+          _image = null; // Clear the selected image after successful upload
           _isLoading = false;
         });
         Navigator.pop(context, {
@@ -282,7 +289,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             value: _twoFaEnabled,
                             onChanged: (value) => setState(() => _twoFaEnabled = value),
                             activeColor: Colors.blue.shade700,
-                            ),
+                          ),
                           SwitchListTile(
                             title: const Text('Enable Notifications'),
                             value: _notificationsEnabled,
@@ -405,7 +412,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: ElevatedButton(
                               onPressed: _isLoading ? null : _updateProfile,
                               style: ElevatedButton.styleFrom(
-                                padding: EdgeInsets.symmetric(vertical: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent,
                                 shape: RoundedRectangleBorder(
@@ -479,7 +486,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return const CircleAvatar(
         radius: 50,
         backgroundColor: Colors.grey,
-        child: Icon(Icons.person, size: 50, color: Colors.grey),
+        child: Icon(Icons.person, size: 50, color: Colors.white),
       );
     }
   }

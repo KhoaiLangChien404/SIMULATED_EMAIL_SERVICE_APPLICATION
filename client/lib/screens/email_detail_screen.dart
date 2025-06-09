@@ -326,7 +326,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('From: ${_email!['senderPhone'] as String? ?? 'Unknown'}'),
+                Text('From: ${_email!['isAutoReply'] as bool ? (_email!['senderPhone'] as String? ?? 'Unknown') : (_email!['senderPhone'] as String? ?? 'Unknown')}'),
                 Text('To: ${_email!['recipientPhone'] as String? ?? 'Unknown'}'),
                 if (_email!['cc'] != null && (_email!['cc'] as String).isNotEmpty)
                   Text('CC: ${_email!['cc']}'),
@@ -524,7 +524,7 @@ class _EmailDetailScreenState extends State<EmailDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'From: ${_email!['senderPhone'] as String? ?? 'Unknown'}',
+              'From: ${_email!['isAutoReply'] as bool ? (_email!['senderPhone'] as String? ?? 'Unknown') : (_email!['senderPhone'] as String? ?? 'Unknown')}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             Text('To: ${_email!['recipientPhone'] as String? ?? 'Unknown'}'),
