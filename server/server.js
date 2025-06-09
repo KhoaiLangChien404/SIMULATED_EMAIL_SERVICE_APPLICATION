@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + path.extname(file.originalName));
   },
 });
 
@@ -352,61 +352,145 @@ app.post('/api/send-email', authenticate, upload.array('attachments', 5), async 
   }
 
   try {
-    db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage, notificationsEnabled FROM users WHERE phone = ?', [recipientPhone], (err, recipient) => {
-      if (err) {
-        console.error('Recipient check error:', err);
-        return res.status(500).json({ error: 'Server error' });
-      }
-      if (!recipient) {
-        return res.status(400).json({ error: 'Recipient phone number not found' });
-      }
+    // Parse CC and BCC (comma-separated phone numbers)
+    const ccList = cc ? cc.split(',').map(phone => phone.trim()).filter(phone => phone) : [];
+    const bccList = bcc ? bcc.split(',').map(phone => phone.trim()).filter(phone => phone) : [];
 
-      db.run(
-        'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.user.phone, recipientPhone, cc || '', bcc || '', subject, body],
-        function (err) {
+    // Combine all recipients (recipientPhone + cc + bcc) for validation
+    const allRecipients = [recipientPhone, ...ccList, ...bccList];
+
+    // Validate all recipients exist in the database
+    const recipientCheckPromises = allRecipients.map(phone =>
+      new Promise((resolve, reject) => {
+        db.get('SELECT id, autoAnswerEnabled, autoAnswerMessage, notificationsEnabled FROM users WHERE phone = ?', [phone], (err, user) => {
           if (err) {
-            console.error('Email insertion error:', err);
-            return res.status(400).json({ error: 'Failed to send email' });
+            console.error(`Error checking user ${phone}:`, err);
+            reject(err);
+          } else if (!user) {
+            reject(new Error(`Recipient phone number not found: ${phone}`));
+          } else {
+            resolve({ phone, user });
           }
-          const emailId = this.lastID;
+        });
+      })
+    );
 
-          if (attachments.length > 0) {
-            const attachmentData = attachments.map(file => ({
-              emailId,
-              filePath: `/uploads/${file.filename}`,
-              fileType: file.mimetype,
-              originalFileName: encodeURIComponent(file.originalname),
-            }));
-            db.run(
-              `INSERT INTO attachments (emailId, filePath, fileType, originalFileName) VALUES ${attachmentData.map(() => '(?, ?, ?, ?)').join(',')}`,
-              attachmentData.flatMap(a => [a.emailId, a.filePath, a.fileType, a.originalFileName]),
-              (err) => {
-                if (err) {
-                  console.error('Attachment insertion error:', err);
-                  return res.status(400).json({ error: 'Failed to save attachments' });
-                }
-              }
-            );
-          }
-
-          if (recipient.autoAnswerEnabled && recipient.autoAnswerMessage && recipient.notificationsEnabled) {
-            console.log(`Auto answering for recipient ${recipientPhone} with message: ${recipient.autoAnswerMessage}`);
-            db.run(
-              'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
-              [recipientPhone, req.user.phone, `Re: ${subject}`, recipient.autoAnswerMessage],
-              (err) => {
-                if (err) {
-                  console.error('Auto answer email insertion error:', err);
-                }
-              }
-            );
-          }
-
-          res.json({ message: 'Email sent', emailId });
+    const recipients = await Promise.allSettled(recipientCheckPromises).then(results => {
+      const validRecipients = [];
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          validRecipients.push(result.value);
+        } else {
+          console.error(result.reason);
         }
-      );
+      }
+      return validRecipients;
     });
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ error: 'No valid recipients found' });
+    }
+
+    // Insert email for each valid recipient
+    const emailInsertPromises = recipients.map(({ phone, user }) =>
+      new Promise((resolve, reject) => {
+        db.run(
+          'INSERT INTO emails (senderPhone, recipientPhone, cc, bcc, subject, body) VALUES (?, ?, ?, ?, ?, ?)',
+          [req.user.phone, phone, cc || '', bcc || '', subject, body],
+          function (err) {
+            if (err) {
+              console.error(`Error inserting email for ${phone}:`, err);
+              reject(err);
+            } else {
+              resolve({ emailId: this.lastID, recipient: user });
+            }
+          }
+        );
+      })
+    );
+
+    const insertedEmails = await Promise.allSettled(emailInsertPromises).then(results => {
+      const successfulEmails = [];
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          successfulEmails.push(result.value);
+        } else {
+          console.error('Email insertion error:', result.reason);
+        }
+      }
+      return successfulEmails;
+    });
+
+    if (insertedEmails.length === 0) {
+      return res.status(500).json({ error: 'Failed to send email to any recipient' });
+    }
+
+    // Insert attachments for each email
+    const attachmentPromises = insertedEmails.map(({ emailId }) =>
+      new Promise((resolve, reject) => {
+        if (attachments.length > 0) {
+          const attachmentData = attachments.map(file => ({
+            emailId,
+            filePath: `/uploads/${file.filename}`,
+            fileType: file.mimetype,
+            originalFileName: encodeURIComponent(file.originalname),
+          }));
+          db.run(
+            `INSERT INTO attachments (emailId, filePath, fileType, originalFileName) VALUES ${attachmentData.map(() => '(?, ?, ?, ?)').join(',')}`,
+            attachmentData.flatMap(a => [a.emailId, a.filePath, a.fileType, a.originalFileName]),
+            (err) => {
+              if (err) {
+                console.error('Attachment insertion error:', err);
+                reject(err);
+              } else {
+                resolve();
+              }
+            }
+          );
+        } else {
+          resolve();
+        }
+      })
+    );
+
+    await Promise.allSettled(attachmentPromises).then(results => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.error('Attachment insertion error:', result.reason);
+        }
+      }
+    });
+
+    // Send auto-answer for recipients with autoAnswerEnabled
+    const autoAnswerPromises = insertedEmails
+      .filter(({ recipient }) => recipient.autoAnswerEnabled && recipient.autoAnswerMessage && recipient.notificationsEnabled)
+      .map(({ emailId, recipient }) =>
+        new Promise((resolve, reject) => {
+          console.log(`Auto answering for recipient ${recipient.phone} with message: ${recipient.autoAnswerMessage}`);
+          db.run(
+            'INSERT INTO emails (senderPhone, recipientPhone, subject, body) VALUES (?, ?, ?, ?)',
+            [recipient.phone, req.user.phone, `Re: ${subject}`, recipient.autoAnswerMessage],
+            (err) => {
+              if (err) {
+                console.error('Auto answer email insertion error:', err);
+                reject(err);
+              } else {
+                resolve();
+              }
+            }
+          );
+        })
+      );
+
+    await Promise.allSettled(autoAnswerPromises).then(results => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.error('Auto answer error:', result.reason);
+        }
+      }
+    });
+
+    res.json({ message: 'Email sent', emailId: insertedEmails.map(e => e.emailId) });
   } catch (e) {
     console.error('Send email exception:', e);
     res.status(500).json({ error: 'Server error' });
@@ -648,7 +732,7 @@ app.post('/api/email-labels', authenticate, (req, res) => {
 // Serve file for download with original file name
 app.get('/api/download/:filePath', authenticate, (req, res) => {
   const filePath = decodeURIComponent(req.params.filePath);
-  const fullPath = path.join(__dirname, 'Uploads', filePath.split('/').pop());
+  const fullPath = path.join(__dirname, 'uploads', filePath.split('/').pop());
   db.get('SELECT originalFileName FROM attachments WHERE filePath = ?', [filePath], (err, attachment) => {
     if (err) {
       console.error('Attachment fetch error:', err);
