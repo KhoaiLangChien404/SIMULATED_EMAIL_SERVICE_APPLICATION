@@ -59,7 +59,7 @@ class _CheckLoginState extends State<CheckLogin> {
   bool _isLoggedIn = false;
   String? _token;
   bool _isLoading = true;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
 
   @override
   void initState() {

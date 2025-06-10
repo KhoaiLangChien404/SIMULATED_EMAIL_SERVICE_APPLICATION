@@ -31,7 +31,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _defaultFontFamily = 'Arial';
   String _error = '';
   bool _isLoading = false;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
 
   @override
   void initState() {

@@ -13,7 +13,7 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   String _error = '';
   String _message = '';
   bool _isLoading = false;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
 
   Future<void> _recoverPassword() async {
     if (_phoneController.text.isEmpty || _newPasswordController.text.isEmpty) {

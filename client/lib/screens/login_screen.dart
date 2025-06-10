@@ -20,7 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _twoFaEnabled = false;
   String _error = '';
   bool _isLoading = false;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
 
   Future<void> _login() async {
     if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
