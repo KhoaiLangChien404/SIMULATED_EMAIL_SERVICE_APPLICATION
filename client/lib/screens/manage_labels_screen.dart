@@ -14,7 +14,7 @@ class _ManageLabelsScreenState extends State<ManageLabelsScreen> {
   List<String> _labels = [];
   String _error = '';
   bool _isLoading = true;
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-li5x.onrender.com');
   final TextEditingController _labelController = TextEditingController();
   final TextEditingController _editLabelController = TextEditingController();
 

@@ -14,7 +14,7 @@ class TwoFaScreen extends StatefulWidget {
 class _TwoFaScreenState extends State<TwoFaScreen> {
   final _codeController = TextEditingController();
   String _error = '';
-  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-8v13.onrender.com');
+  final String _baseUrl = const String.fromEnvironment('BASE_URL', defaultValue: 'https://simulated-email-service-application-li5x.onrender.com');
 
   Future<void> _verify2Fa() async {
     try {
